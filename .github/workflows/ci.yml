@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests (no API keys needed)
+        run: pytest tests/ -v --tb=short
+        env:
+          ANTHROPIC_API_KEY: test-key
+          OPENAI_API_KEY: test-key
+          SENTINELAI_ENV: test
+
+      - name: Check no secrets in code
+        run: |
+          if grep -rE "(sk-ant-api|sk-[a-zA-Z0-9]{48})" sentinelai/ tests/; then
+            echo "ERROR: Hardcoded API key detected!"
+            exit 1
+          fi
+          echo "No hardcoded secrets found"
