@@ -1,0 +1,2199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SentinelAI — Security Operations</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    --bg:#0A0A12; --bg2:#10101E; --bg3:#16162A;
+    --border:#1E1E36; --border2:#2A2A4A;
+    --text:#C8C8E8; --text2:#7878AA; --text3:#4A4A72;
+    --accent:#6C63FF; --accent2:#4A44CC;
+    --red:#E24B4A; --red-bg:#1A0A0A;
+    --orange:#F59E0B; --orange-bg:#1A1200;
+    --green:#10B981; --green-bg:#001A10;
+    --blue:#3B82F6; --blue-bg:#000D1A;
+    --mono:'JetBrains Mono',monospace;
+    --sans:'Inter',sans-serif;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13px;min-height:100vh;}
+  .shell{display:grid;grid-template-rows:48px 1fr;height:100vh;}
+  .topbar{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:24px;}
+  .logo{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:14px;font-weight:600;color:var(--accent);letter-spacing:0.05em;}
+  .logo-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+  .nav{display:flex;gap:4px;margin-left:24px;}
+  .nav-btn{background:none;border:none;color:var(--text2);font-size:12px;font-family:var(--sans);padding:6px 12px;border-radius:4px;cursor:pointer;transition:all 0.15s;}
+  .nav-btn:hover{color:var(--text);background:var(--bg3);}
+  .nav-btn.active{color:var(--accent);background:rgba(108,99,255,0.1);}
+  .status-bar{margin-left:auto;display:flex;align-items:center;gap:16px;}
+  .status-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);}
+  .status-text{font-size:11px;color:var(--text2);font-family:var(--mono);}
+  .api-key-input{background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:4px;width:260px;}
+  .api-key-input:focus{outline:none;border-color:var(--accent);}
+  .body{display:grid;grid-template-columns:200px 1fr;overflow:hidden;}
+  .sidebar{background:var(--bg2);border-right:1px solid var(--border);padding:12px 0;display:flex;flex-direction:column;gap:2px;overflow-y:auto;}
+  .sb-section{padding:8px 16px 4px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;font-family:var(--mono);}
+  .sb-item{display:flex;align-items:center;gap:10px;padding:7px 16px;cursor:pointer;color:var(--text2);font-size:12px;transition:all 0.12s;position:relative;}
+  .sb-item:hover{color:var(--text);background:rgba(255,255,255,0.03);}
+  .sb-item.active{color:var(--accent);background:rgba(108,99,255,0.08);}
+  .sb-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent);border-radius:0 2px 2px 0;}
+  .sb-badge{margin-left:auto;font-size:10px;padding:1px 6px;border-radius:8px;font-family:var(--mono);}
+  .badge-red{background:rgba(226,75,74,0.2);color:var(--red);}
+  .badge-orange{background:rgba(245,158,11,0.2);color:var(--orange);}
+  .main{overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;background:var(--bg);}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;}
+  .card-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}
+  .card-title{font-size:12px;font-weight:500;color:var(--text);font-family:var(--mono);}
+  .card-body{padding:14px 16px;}
+  .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
+  .stat-val{font-size:28px;font-weight:600;font-family:var(--mono);margin-bottom:4px;}
+  .stat-lbl{font-size:11px;color:var(--text2);}
+  .stat-sub{font-size:11px;margin-top:6px;font-family:var(--mono);}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .log-textarea{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:11px;padding:12px;border-radius:6px;resize:vertical;min-height:120px;line-height:1.6;}
+  .log-textarea:focus{outline:none;border-color:var(--accent);}
+  .row{display:flex;gap:8px;margin-top:10px;align-items:center;}
+  .log-source-input{background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:11px;padding:7px 10px;border-radius:6px;flex:1;}
+  .log-source-input:focus{outline:none;border-color:var(--accent);}
+  .btn{border:none;border-radius:6px;padding:7px 16px;font-size:12px;font-family:var(--sans);cursor:pointer;font-weight:500;transition:all 0.15s;}
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-primary:hover{background:var(--accent2);}
+  .btn-primary:disabled{opacity:0.4;cursor:not-allowed;}
+  .btn-ghost{background:var(--bg3);color:var(--text2);border:1px solid var(--border2);}
+  .btn-ghost:hover{color:var(--text);}
+  .btn-green{background:rgba(16,185,129,0.15);color:var(--green);border:1px solid rgba(16,185,129,0.3);}
+  .btn-green:hover{background:rgba(16,185,129,0.25);}
+  .stream-box{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-family:var(--mono);font-size:11px;color:var(--green);min-height:180px;max-height:400px;overflow-y:auto;line-height:1.7;white-space:pre-wrap;word-break:break-word;}
+  .cursor{display:inline-block;width:7px;height:13px;background:var(--green);animation:blink 1s infinite;vertical-align:text-bottom;margin-left:2px;border-radius:1px;}
+  @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+  .threat-list{display:flex;flex-direction:column;gap:6px;}
+  .threat-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg);border-radius:6px;border-left:3px solid;}
+  .threat-critical{border-color:var(--red);}
+  .threat-high{border-color:var(--orange);}
+  .threat-medium{border-color:var(--blue);}
+  .threat-low{border-color:var(--text3);}
+  .threat-text{flex:1;font-size:11px;color:var(--text2);font-family:var(--mono);}
+  .threat-ttp{font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:2px;}
+  .sev-badge{font-size:10px;padding:2px 7px;border-radius:3px;font-family:var(--mono);font-weight:600;flex-shrink:0;}
+  .sev-critical{background:rgba(226,75,74,0.2);color:var(--red);}
+  .sev-high{background:rgba(245,158,11,0.2);color:var(--orange);}
+  .sev-medium{background:rgba(59,130,246,0.2);color:var(--blue);}
+  .sev-low{background:rgba(255,255,255,0.05);color:var(--text3);}
+  .scan-table{width:100%;border-collapse:collapse;}
+  .scan-table th{text-align:left;padding:8px 12px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.08em;font-family:var(--mono);border-bottom:1px solid var(--border);font-weight:500;}
+  .scan-table td{padding:10px 12px;font-size:11px;border-bottom:1px solid var(--border);font-family:var(--mono);color:var(--text2);}
+  .scan-table tr:last-child td{border-bottom:none;}
+  .scan-table tr:hover td{background:rgba(255,255,255,0.02);color:var(--text);}
+  .status-chip{font-size:10px;padding:2px 8px;border-radius:3px;font-family:var(--mono);}
+  .s-completed{background:var(--green-bg);color:var(--green);}
+  .s-running{background:rgba(108,99,255,0.15);color:var(--accent);}
+  .s-failed{background:var(--red-bg);color:var(--red);}
+  .s-pending{background:rgba(255,255,255,0.05);color:var(--text3);}
+  .ioc-grid{display:flex;flex-wrap:wrap;gap:6px;}
+  .ioc-chip{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:3px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);}
+  .ioc-ip{border-color:rgba(226,75,74,0.4);color:var(--red);background:var(--red-bg);}
+  .ioc-domain{border-color:rgba(245,158,11,0.4);color:var(--orange);background:var(--orange-bg);}
+  .pre-panel{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  .pre-stat{text-align:center;}
+  .pre-val{font-size:24px;font-weight:600;font-family:var(--mono);}
+  .pre-lbl{font-size:10px;color:var(--text2);margin-top:2px;text-transform:uppercase;letter-spacing:0.06em;}
+  .empty{text-align:center;padding:40px 20px;color:var(--text3);}
+  .empty-icon{font-size:32px;margin-bottom:10px;}
+  .empty-text{font-size:12px;line-height:1.6;}
+  .spinner{width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;display:inline-block;vertical-align:middle;margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .file-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+  .file-btn{font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:4px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);cursor:pointer;transition:all 0.12s;}
+  .file-btn:hover{color:var(--accent);border-color:var(--accent);}
+  .section-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;font-family:var(--mono);}
+  .c-red{color:var(--red);} .c-orange{color:var(--orange);} .c-green{color:var(--green);} .c-blue{color:var(--blue);} .c-accent{color:var(--accent);}
+
+  /* ── File upload drop zone ── */
+  .drop-zone{border:2px dashed var(--border2);border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:all 0.2s;background:var(--bg);margin-bottom:10px;}
+  .drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:rgba(108,99,255,0.05);}
+  .drop-zone-icon{font-size:24px;margin-bottom:6px;color:var(--text3);}
+  .drop-zone-text{font-size:11px;color:var(--text2);font-family:var(--mono);}
+  .drop-zone-sub{font-size:10px;color:var(--text3);margin-top:4px;}
+  #file-input{display:none;}
+
+  /* ── Toast notification ── */
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px 16px;font-family:var(--mono);font-size:11px;color:var(--text);z-index:1000;opacity:0;transform:translateY(10px);transition:all 0.3s;max-width:320px;}
+  .toast.show{opacity:1;transform:translateY(0);}
+  .toast-success{border-color:rgba(16,185,129,0.5);color:var(--green);}
+  .toast-error{border-color:rgba(226,75,74,0.5);color:var(--red);}
+
+  /* ── Tabs ── */
+  .tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:12px;}
+  .tab{padding:7px 16px;font-size:11px;font-family:var(--mono);color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all 0.15s;}
+  .tab:hover{color:var(--text);}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+
+  /* ── Scan saved banner ── */
+  .saved-banner{background:var(--green-bg);border:1px solid rgba(16,185,129,0.3);border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:11px;color:var(--green);display:none;margin-top:8px;}
+  .saved-banner.show{display:flex;align-items:center;gap:8px;}
+
+  /* ── Auth overlay ── */
+  .auth-overlay{position:fixed;inset:0;background:rgba(10,10,18,0.97);z-index:2000;display:flex;align-items:center;justify-content:center;}
+  .auth-card{background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:32px;width:380px;max-width:90vw;}
+  .auth-logo{text-align:center;margin-bottom:24px;font-family:var(--mono);font-size:20px;font-weight:600;color:var(--accent);}
+  .auth-tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px;}
+  .auth-tab{flex:1;text-align:center;padding:8px;font-size:12px;font-family:var(--mono);color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;}
+  .auth-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .form-group{margin-bottom:14px;}
+  .form-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono);margin-bottom:5px;display:block;}
+  .auth-input{width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 12px;border-radius:6px;outline:none;transition:border .15s;}
+  .auth-input:focus{border-color:var(--accent);}
+  .auth-error{color:var(--red);font-size:11px;font-family:var(--mono);margin-bottom:12px;min-height:16px;}
+  /* ── Modal ── */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:center;justify-content:center;}
+  .modal{background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:24px;width:460px;max-width:90vw;}
+  .modal-title{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;}
+  .key-box{background:var(--bg);border:1px solid rgba(16,185,129,0.4);border-radius:6px;padding:12px;font-family:var(--mono);font-size:11px;color:var(--green);word-break:break-all;margin-bottom:8px;cursor:pointer;user-select:all;}
+  .key-warn{font-size:11px;color:var(--orange);font-family:var(--mono);margin-bottom:14px;}
+  /* ── User display ── */
+  .user-chip{display:flex;align-items:center;gap:8px;border-left:1px solid var(--border);padding-left:12px;margin-left:4px;}
+  .user-avatar{width:22px;height:22px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;font-family:var(--mono);}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div class="logo"><div class="logo-dot"></div>SENTINEL<span style="color:var(--text2)">AI</span></div>
+    <nav class="nav">
+      <button class="nav-btn active" id="nb-dashboard" onclick="showPage('dashboard')">Dashboard</button>
+      <button class="nav-btn" id="nb-analyse" onclick="showPage('analyse')">Log Analyser</button>
+      <button class="nav-btn" id="nb-correlate" onclick="showPage('correlate')">Attack Chain</button>
+      <button class="nav-btn" id="nb-vuln" onclick="showPage('vuln')">Vuln Scan</button>
+      <button class="nav-btn" id="nb-scans" onclick="showPage('scans')">Scan History</button>
+      <button class="nav-btn" id="nb-schedules" onclick="showPage('schedules')">Schedules</button>
+      <button class="nav-btn" id="nb-mitre" onclick="showPage('mitre')">MITRE</button>
+    </nav>
+    <div class="status-bar">
+      <div class="status-dot" id="status-dot"></div>
+      <span class="status-text" id="status-text">connecting...</span>
+      <input class="api-key-input" id="api-key" type="password"
+             placeholder="X-API-Key (for scans)..." value=""
+             onchange="checkHealth()">
+      <div class="user-chip" id="user-display" style="display:none">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <span style="font-size:11px;font-family:var(--mono);color:var(--text2)" id="user-name"></span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:11px" onclick="doLogout()">Sign out</button>
+      </div>
+      <button id="login-btn" class="btn btn-ghost" style="padding:4px 10px;font-size:11px;margin-left:4px" onclick="showAuthPage()">Sign in</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="sidebar">
+      <div class="sb-section">Red Team</div>
+      <div class="sb-item" onclick="showPage('analyse')"><span>⬡</span> Reconnaissance</div>
+      <div class="sb-item" id="sb-vuln" onclick="showPage('vuln')"><span>◈</span> Vuln Scan</div>
+      <div class="sb-section">Blue Team</div>
+      <div class="sb-item" id="sb-analyse" onclick="showPage('analyse')">
+        <span>⟐</span> Log Analyser
+        <span class="sb-badge badge-red" id="sb-anomaly-count" style="display:none"></span>
+      </div>
+      <div class="sb-item" id="sb-correlate" onclick="showPage('correlate')">
+        <span>⛓</span> Attack Chain
+      </div>
+      <div class="sb-item" id="sb-scans" onclick="showPage('scans')">
+        <span>≡</span> Scan History
+        <span class="sb-badge badge-orange" id="sb-scan-count" style="display:none"></span>
+      </div>
+      <div class="sb-item" id="sb-schedules" onclick="showPage('schedules')">
+        <span>⏱</span> Schedules
+        <span class="sb-badge badge-orange" id="sb-sched-count" style="display:none"></span>
+      </div>
+      <div class="sb-item" id="sb-mitre" onclick="showPage('mitre')">
+        <span>◧</span> MITRE Heatmap
+      </div>
+      <div class="sb-section" id="sb-user-section">User</div>
+      <div class="sb-item" id="sb-keys" onclick="showPage('keys')"><span>⚿</span> API Keys</div>
+      <div class="sb-item" id="sb-alerts" onclick="showPage('alerts')"><span>⚑</span> Alert Rules</div>
+      <div id="sb-admin-wrap" style="display:none">
+        <div class="sb-section">Admin</div>
+        <div class="sb-item" id="sb-admin" onclick="showPage('admin')"><span>⊞</span> Admin Panel</div>
+      </div>
+      <div class="sb-section">Platform</div>
+      <div class="sb-item" onclick="showPage('dashboard')"><span>◎</span> Overview</div>
+      <div class="sb-item" onclick="window.open('/docs','_blank')"><span>⌘</span> API Docs ↗</div>
+    </div>
+    <div class="main" id="main-content"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Auth overlay -->
+<div class="auth-overlay" id="auth-overlay" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo"><span style="color:var(--text2)">◉ </span>SENTINELAI</div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="auth-tab-login" onclick="switchAuthTab('login')">Sign In</div>
+      <div class="auth-tab" id="auth-tab-register" onclick="switchAuthTab('register')">Register</div>
+    </div>
+    <div id="auth-form-login">
+      <div class="form-group"><label class="form-label">Email</label><input class="auth-input" id="login-email" type="email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div class="form-group"><label class="form-label">Password</label><input class="auth-input" id="login-password" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div class="auth-error" id="login-error"></div>
+      <button class="btn btn-primary" id="login-submit-btn" style="width:100%;padding:10px" onclick="doLogin()">Sign In →</button>
+    </div>
+    <div id="auth-form-register" style="display:none">
+      <div class="form-group"><label class="form-label">Username</label><input class="auth-input" id="reg-username" type="text" placeholder="johndoe" onkeydown="if(event.key==='Enter')doRegister()"></div>
+      <div class="form-group"><label class="form-label">Email</label><input class="auth-input" id="reg-email" type="email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doRegister()"></div>
+      <div class="form-group"><label class="form-label">Password</label><input class="auth-input" id="reg-password" type="password" placeholder="min 8 characters" onkeydown="if(event.key==='Enter')doRegister()"></div>
+      <div class="auth-error" id="reg-error"></div>
+      <button class="btn btn-primary" id="reg-submit-btn" style="width:100%;padding:10px" onclick="doRegister()">Create Account →</button>
+    </div>
+    <div style="text-align:center;margin-top:16px;font-size:10px;color:var(--text3);font-family:var(--mono)">First user to register becomes admin</div>
+  </div>
+</div>
+
+<!-- Generic modal for activity drill-downs -->
+<div class="modal-overlay" id="modal-overlay" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" id="modal-box" style="max-width:760px;width:95%;max-height:85vh;overflow-y:auto"></div>
+</div>
+
+<!-- Key reveal modal -->
+<div class="modal-overlay" id="key-modal" style="display:none">
+  <div class="modal">
+    <div class="modal-title">⚿ New API Key Generated</div>
+    <div class="key-warn">⚠ This key will ONLY be shown once. Copy it and store it securely — it cannot be recovered.</div>
+    <div class="key-box" id="key-modal-value" onclick="copyKey()" title="Click to copy"></div>
+    <div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:16px">Click the key above to copy. Also auto-filled into the X-API-Key input.</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-green" style="flex:1" onclick="copyKey()">Copy key ✓</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="document.getElementById('key-modal').style.display='none'">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let scanPollInterval = null;
+
+// ── Auth state ─────────────────────────────────────────────────────────────
+function getToken()  { return localStorage.getItem('sat_jwt'); }
+function setToken(t) { localStorage.setItem('sat_jwt', t); }
+function clearToken(){ localStorage.removeItem('sat_jwt'); localStorage.removeItem('sat_user'); }
+function getUser()   { try { return JSON.parse(localStorage.getItem('sat_user')||'null'); } catch { return null; } }
+function setUser(u)  { localStorage.setItem('sat_user', JSON.stringify(u)); }
+
+function updateUserDisplay() {
+  const user = getUser();
+  const ud   = document.getElementById('user-display');
+  const lb   = document.getElementById('login-btn');
+  if (user) {
+    document.getElementById('user-name').textContent   = user.username;
+    document.getElementById('user-avatar').textContent = user.username[0].toUpperCase();
+    if (ud) ud.style.display = 'flex';
+    if (lb) lb.style.display = 'none';
+    const adminWrap = document.getElementById('sb-admin-wrap');
+    if (adminWrap) adminWrap.style.display = user.is_admin ? '' : 'none';
+  } else {
+    if (ud) ud.style.display = 'none';
+    if (lb) lb.style.display = '';
+    const adminWrap = document.getElementById('sb-admin-wrap');
+    if (adminWrap) adminWrap.style.display = 'none';
+  }
+}
+
+function showAuthPage() {
+  document.getElementById('auth-overlay').style.display = 'flex';
+}
+function hideAuthPage() {
+  document.getElementById('auth-overlay').style.display = 'none';
+}
+
+function switchAuthTab(tab) {
+  document.getElementById('auth-tab-login').classList.toggle('active', tab==='login');
+  document.getElementById('auth-tab-register').classList.toggle('active', tab==='register');
+  document.getElementById('auth-form-login').style.display    = tab==='login'    ? '' : 'none';
+  document.getElementById('auth-form-register').style.display = tab==='register' ? '' : 'none';
+}
+
+async function doLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl    = document.getElementById('login-error');
+  const btn      = document.getElementById('login-submit-btn');
+  errEl.textContent = '';
+  if (!email || !password) { errEl.textContent = 'Email and password are required'; return; }
+  btn.disabled = true; btn.textContent = 'Signing in...';
+  try {
+    const data = await apiFetch('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({email, password})
+    });
+    setToken(data.token);
+    setUser(data.user);
+    hideAuthPage();
+    updateUserDisplay();
+    checkHealth();
+    renderDashboard();
+    toast(`Welcome back, ${data.user.username} ✓`);
+  } catch(e) {
+    errEl.textContent = e.message || 'Login failed';
+  }
+  btn.disabled = false; btn.textContent = 'Sign In →';
+}
+
+async function doRegister() {
+  const username = document.getElementById('reg-username').value.trim();
+  const email    = document.getElementById('reg-email').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const errEl    = document.getElementById('reg-error');
+  const btn      = document.getElementById('reg-submit-btn');
+  errEl.textContent = '';
+  if (!username || !email || !password) { errEl.textContent = 'All fields are required'; return; }
+  if (password.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; return; }
+  btn.disabled = true; btn.textContent = 'Creating account...';
+  try {
+    const data = await apiFetch('/api/v1/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({username, email, password})
+    });
+    setToken(data.token);
+    setUser(data.user);
+    hideAuthPage();
+    updateUserDisplay();
+    checkHealth();
+    renderDashboard();
+    toast(`Account created! Welcome, ${data.user.username} ✓`);
+  } catch(e) {
+    errEl.textContent = e.message || 'Registration failed';
+  }
+  btn.disabled = false; btn.textContent = 'Create Account →';
+}
+
+function doLogout() {
+  clearToken();
+  updateUserDisplay();
+  showAuthPage();
+  toast('Signed out');
+}
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+function apiKey() { return document.getElementById('api-key').value.trim(); }
+
+async function apiFetch(path, opts={}) {
+  const headers = {'Content-Type': 'application/json', ...(opts.headers||{})};
+  if (apiKey()) headers['X-API-Key'] = apiKey();
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const r = await fetch(API + path, {...opts, headers});
+
+  if (r.status === 401 && !path.includes('/auth/login') && !path.includes('/auth/register')) {
+    clearToken();
+    updateUserDisplay();
+    showAuthPage();
+    throw new Error('Session expired — please sign in again');
+  }
+  if (!r.ok) {
+    let detail = `${r.status}`;
+    try { const err = await r.json(); detail = err.detail || detail; } catch{}
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+function toast(msg, type='success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast toast-${type} show`;
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function setSidebarActive(id) {
+  document.querySelectorAll('.sb-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+// ── Health ─────────────────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const d = await fetch(API+'/health').then(r=>r.json());
+    document.getElementById('status-dot').style.cssText='background:var(--green);box-shadow:0 0 6px var(--green)';
+    document.getElementById('status-text').textContent=`v${d.version} · ${d.llm_configured?'LLM ✓':'no LLM key'}`;
+  } catch {
+    document.getElementById('status-dot').style.cssText='background:var(--red);box-shadow:0 0 6px var(--red)';
+    document.getElementById('status-text').textContent='server offline';
+  }
+}
+
+// ── Nav ────────────────────────────────────────────────────────────────────
+function showPage(page) {
+  if (scanPollInterval) { clearInterval(scanPollInterval); scanPollInterval=null; }
+  // Protected pages require login
+  if (['keys','alerts','admin'].includes(page) && !getToken()) {
+    showAuthPage(); return;
+  }
+  const pages = {
+    dashboard:renderDashboard, analyse:renderAnalyse, scans:renderScans,
+    schedules:renderSchedules, correlate:renderCorrelate, mitre:renderMitre,
+    vuln:renderVuln, keys:renderKeys, alerts:renderAlerts, admin:renderAdmin,
+  };
+  (pages[page]||renderDashboard)();
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+async function loadStats() {
+  try { return await apiFetch('/api/v1/stats'); }
+  catch { return {total_scans:0,completed_scans:0,failed_scans:0,total_findings:0,critical_findings:0,high_findings:0,scans_by_type:{},recent_scans:[]}; }
+}
+
+async function renderDashboard() {
+  setSidebarActive('');
+  document.getElementById('nb-dashboard').classList.add('active');
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading...</div>`;
+  const s = await loadStats();
+
+  // Update badges
+  const sb = document.getElementById('sb-scan-count');
+  if (sb) { sb.textContent=s.total_scans||''; sb.style.display=s.total_scans?'':'none'; }
+
+  main.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-val c-accent">${s.total_scans}</div><div class="stat-lbl">Total scans</div><div class="stat-sub" style="color:var(--green)">${s.completed_scans} completed</div></div>
+      <div class="stat-card"><div class="stat-val c-red">${s.critical_findings}</div><div class="stat-lbl">Critical findings</div><div class="stat-sub c-orange">${s.high_findings} high</div></div>
+      <div class="stat-card"><div class="stat-val c-orange">${s.total_findings}</div><div class="stat-lbl">Total findings</div><div class="stat-sub" style="color:var(--text3)">all scans</div></div>
+      <div class="stat-card"><div class="stat-val c-green">${s.completed_scans}</div><div class="stat-lbl">Completed</div><div class="stat-sub c-red">${s.failed_scans} failed</div></div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <div class="card-header"><span class="c-accent">◈</span><span class="card-title">Scans by type</span></div>
+        <div class="card-body">
+          ${Object.keys(s.scans_by_type).length===0
+            ?`<div class="empty"><div class="empty-icon">⊘</div><div class="empty-text">No scans yet.<br>Run a log analysis to get started.</div></div>`
+            :Object.entries(s.scans_by_type).map(([t,c])=>`
+              <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);">
+                <span style="font-family:var(--mono);font-size:11px;color:var(--text2)">${t}</span>
+                <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent)">${c}</span>
+              </div>`).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="c-green">≡</span><span class="card-title">Recent scans</span><button class="btn btn-ghost" style="margin-left:auto;font-size:11px;" onclick="renderScans()">View all →</button></div>
+        <div class="card-body">
+          ${s.recent_scans.length===0
+            ?`<div class="empty"><div class="empty-icon">⊘</div><div class="empty-text">No recent scans</div></div>`
+            :s.recent_scans.map(sc=>`
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+                <div>
+                  <div style="font-family:var(--mono);font-size:11px;color:var(--text)">${sc.target}</div>
+                  <div style="font-size:10px;color:var(--text3);margin-top:2px">${sc.scan_type} · ${sc.finding_count||0} findings · ${formatDate(sc.created_at)}</div>
+                </div>
+                <span class="status-chip s-${sc.status}">${sc.status}</span>
+              </div>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="c-accent">⟐</span><span class="card-title">Quick start</span></div>
+      <div class="card-body">
+        <p style="color:var(--text2);font-size:12px;line-height:1.8;margin-bottom:12px;">
+          Upload a log file or paste content into the <strong style="color:var(--text)">Log Analyser</strong> for instant AI-powered threat assessment — anomaly detection, IOC extraction, MITRE ATT&CK mapping, and response recommendations.
+        </p>
+        <div class="file-row">
+          <span style="font-size:11px;color:var(--text3);margin-right:4px;line-height:28px;">Try samples:</span>
+          <button class="file-btn" onclick="loadSampleAndGo('apache')">Apache attacks</button>
+          <button class="file-btn" onclick="loadSampleAndGo('ssh')">SSH brute force</button>
+          <button class="file-btn" onclick="loadSampleAndGo('windows')">Windows security</button>
+          <button class="file-btn" onclick="loadSampleAndGo('nginx')">Nginx scan</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Sample logs ────────────────────────────────────────────────────────────
+const SAMPLES = {
+  apache:`45.33.32.156 - - [22/Jun/2026:10:15:01 +0000] "GET /admin HTTP/1.1" 404 512 "-" "Nikto/2.1.6"
+203.0.113.42 - - [22/Jun/2026:10:30:01 +0000] "GET /search?q=1 UNION SELECT username,password FROM users-- HTTP/1.1" 500 892 "-" "sqlmap/1.7"
+203.0.113.42 - - [22/Jun/2026:10:30:02 +0000] "GET /search?q=1' OR '1'='1 HTTP/1.1" 200 3421 "-" "sqlmap/1.7"
+203.0.113.42 - - [22/Jun/2026:10:31:00 +0000] "GET /../../../etc/passwd HTTP/1.1" 403 256 "-" "curl/7.81.0"
+198.51.100.73 - - [22/Jun/2026:11:00:20 +0000] "POST /login HTTP/1.1" 200 2341 "-" "python-requests/2.31.0"
+192.168.1.1 - - [22/Jun/2026:11:05:10 +0000] "GET /uploads/shell.php?cmd=cat+/etc/shadow HTTP/1.1" 200 1892 "-" "curl/7.81.0"`,
+  ssh:`Jun 23 09:00:01 server sshd[1234]: Failed password for root from 185.234.218.19 port 45231 ssh2
+Jun 23 09:00:05 server sshd[1234]: Failed password for pi from 185.234.218.19 port 45234 ssh2
+Jun 23 09:00:10 server sshd[1234]: Failed password for deploy from 185.234.218.19 port 45239 ssh2
+Jun 23 09:00:20 server sshd[1234]: Failed password for ubuntu from 185.234.218.19 port 45249 ssh2
+Jun 23 09:00:21 server sshd[1234]: Accepted password for ubuntu from 185.234.218.19 port 45250 ssh2
+Jun 23 09:00:25 server sudo: ubuntu : TTY=pts/0 ; PWD=/home/ubuntu ; USER=root ; COMMAND=/bin/bash
+Jun 23 09:01:05 server sshd[1260]: Accepted publickey for backdoor from 91.108.56.130 port 22341 ssh2`,
+  windows:`2026-06-23 10:00:01 Security EventID=4625 Account=Administrator Source=192.168.1.50 LogonType=3
+2026-06-23 10:00:10 Security EventID=4624 Account=Administrator Source=192.168.1.50 LogonType=3 AuthPackage=NTLM
+2026-06-23 10:00:25 Security EventID=4688 NewProcess=net.exe CommandLine="net user hacker P@ssw0rd /add"
+2026-06-23 10:00:30 Security EventID=4688 NewProcess=reg.exe CommandLine="reg add HKLM\\Run /v malware"
+2026-06-23 10:00:35 Security EventID=4688 NewProcess=powershell.exe CommandLine="powershell -enc SQBuAHYAbwBrAGUA..."`,
+  nginx:`203.0.113.1 - - [23/Jun/2026:11:00:05 +0000] "GET /.git/config HTTP/1.1" 200 312 "-" "dirbuster/1.0"
+203.0.113.1 - - [23/Jun/2026:11:00:06 +0000] "GET /.env HTTP/1.1" 200 89 "-" "dirbuster/1.0"
+203.0.113.1 - - [23/Jun/2026:11:00:08 +0000] "GET /api/v1/users?id=1 UNION SELECT username,password FROM users-- HTTP/1.1" 500 892 "-" "sqlmap/1.7"
+203.0.113.1 - - [23/Jun/2026:11:00:10 +0000] "POST /api/v1/upload HTTP/1.1" 200 256 "-" "curl/7.81.0"
+203.0.113.1 - - [23/Jun/2026:11:00:11 +0000] "GET /uploads/shell.php?cmd=cat+/etc/passwd HTTP/1.1" 200 1892 "-" "curl/7.81.0"`
+};
+
+function loadSampleAndGo(type) {
+  showPage('analyse');
+  setTimeout(() => {
+    const ta = document.getElementById('log-content');
+    const src = document.getElementById('log-source');
+    if (ta) { ta.value = SAMPLES[type]||''; }
+    if (src) { src.value = type+'_sample.log'; }
+  }, 60);
+}
+
+// ── Log Analyser ───────────────────────────────────────────────────────────
+function renderAnalyse() {
+  setSidebarActive('sb-analyse');
+  document.getElementById('nb-analyse').classList.add('active');
+  const main = document.getElementById('main-content');
+  main.innerHTML = `
+    <div class="two-col">
+      <div class="card">
+        <div class="card-header"><span class="c-accent">⟐</span><span class="card-title">Log input</span></div>
+        <div class="card-body">
+
+          <!-- Tabs: Upload vs Paste vs Sample -->
+          <div class="tabs">
+            <div class="tab active" onclick="switchInputTab('upload',this)">Upload file</div>
+            <div class="tab" onclick="switchInputTab('paste',this)">Paste text</div>
+            <div class="tab" onclick="switchInputTab('sample',this)">Samples</div>
+          </div>
+
+          <!-- Upload tab -->
+          <div id="tab-upload">
+            <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()"
+                 ondragover="event.preventDefault();this.classList.add('dragover')"
+                 ondragleave="this.classList.remove('dragover')"
+                 ondrop="handleFileDrop(event)">
+              <div class="drop-zone-icon">⬆</div>
+              <div class="drop-zone-text">Drop log file here or click to browse</div>
+              <div class="drop-zone-sub">Apache · Nginx · auth.log · syslog · Windows Event · any .log .txt</div>
+            </div>
+            <input type="file" id="file-input" accept=".log,.txt,.csv,.json" onchange="handleFileSelect(event)">
+            <div id="file-status" style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:8px;"></div>
+          </div>
+
+          <!-- Paste tab -->
+          <div id="tab-paste" style="display:none">
+            <textarea class="log-textarea" id="log-content"
+              placeholder="Paste Apache, Nginx, SSH, syslog, or Windows Event log content here..."></textarea>
+          </div>
+
+          <!-- Sample tab -->
+          <div id="tab-sample" style="display:none">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+              <button class="btn btn-ghost" style="padding:12px;font-family:var(--mono);font-size:11px;" onclick="selectSample('apache')">
+                <div style="font-size:16px;margin-bottom:4px;">🌐</div>
+                Apache attacks<br><span style="color:var(--text3);font-size:10px;">SQL injection, path traversal, webshell</span>
+              </button>
+              <button class="btn btn-ghost" style="padding:12px;font-family:var(--mono);font-size:11px;" onclick="selectSample('ssh')">
+                <div style="font-size:16px;margin-bottom:4px;">🔐</div>
+                SSH brute force<br><span style="color:var(--text3);font-size:10px;">20 failed logins → root access</span>
+              </button>
+              <button class="btn btn-ghost" style="padding:12px;font-family:var(--mono);font-size:11px;" onclick="selectSample('windows')">
+                <div style="font-size:16px;margin-bottom:4px;">🪟</div>
+                Windows security<br><span style="color:var(--text3);font-size:10px;">EventID 4625/4688, persistence</span>
+              </button>
+              <button class="btn btn-ghost" style="padding:12px;font-family:var(--mono);font-size:11px;" onclick="selectSample('nginx')">
+                <div style="font-size:16px;margin-bottom:4px;">⚙</div>
+                Nginx scan<br><span style="color:var(--text3);font-size:10px;">.env/.git exposure, SQLi, upload</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:10px;">
+            <input class="log-source-input" id="log-source" placeholder="Log source name (auto-filled on upload)">
+            <button class="btn btn-primary" id="analyse-btn" onclick="runAnalysis()">Analyse →</button>
+            <button class="btn btn-ghost" onclick="clearAll()">Clear</button>
+          </div>
+
+          <div class="saved-banner" id="saved-banner">
+            <span>✓</span>
+            <span id="saved-msg">Analysis saved to database</span>
+            <button class="btn btn-ghost" style="margin-left:auto;padding:3px 10px;font-size:10px;" onclick="showPage('scans')">View in history →</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="c-green">◎</span>
+          <span class="card-title">Pre-analysis</span>
+          <span id="pre-status" style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono)">waiting</span>
+        </div>
+        <div class="card-body">
+          <div id="pre-panel">
+            <div class="empty"><div class="empty-icon">◈</div><div class="empty-text">Run analysis to see<br>anomaly detection results</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="c-green">▸</span>
+        <span class="card-title">Claude AI threat analysis</span>
+        <span id="stream-status" style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono)">idle</span>
+      </div>
+      <div class="card-body">
+        <div class="stream-box" id="stream-output">
+          <span style="color:var(--text3)">// Claude analysis streams here in real-time...</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="ioc-card" style="display:none">
+      <div class="card-header"><span class="c-red">◉</span><span class="card-title">Extracted IOCs</span></div>
+      <div class="card-body" id="ioc-body"></div>
+    </div>`;
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchInputTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  ['upload','paste','sample'].forEach(t => {
+    const el2 = document.getElementById('tab-'+t);
+    if (el2) el2.style.display = t===name?'block':'none';
+  });
+}
+
+function selectSample(type) {
+  const content = SAMPLES[type]||'';
+  // Switch to paste tab and fill it
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(t=>t.classList.remove('active'));
+  tabs[1].classList.add('active');
+  switchInputTab('paste', tabs[1]);
+  document.getElementById('log-content').value = content;
+  document.getElementById('log-source').value = type+'_sample.log';
+  toast('Sample loaded — click Analyse to run');
+}
+
+// ── File upload ────────────────────────────────────────────────────────────
+function handleFileDrop(event) {
+  event.preventDefault();
+  document.getElementById('drop-zone').classList.remove('dragover');
+  const file = event.dataTransfer.files[0];
+  if (file) processFile(file);
+}
+
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (file) processFile(file);
+}
+
+function processFile(file) {
+  const status = document.getElementById('file-status');
+  status.textContent = `Reading ${file.name} (${(file.size/1024).toFixed(1)} KB)...`;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const content = e.target.result;
+    // Store in a global for analysis
+    window._uploadedContent = content;
+    window._uploadedSource = file.name;
+    document.getElementById('log-source').value = file.name;
+    status.textContent = `✓ ${file.name} loaded — ${content.split('\n').length} lines`;
+    status.style.color = 'var(--green)';
+    toast(`File loaded: ${file.name}`);
+  };
+  reader.onerror = () => {
+    status.textContent = 'Error reading file';
+    status.style.color = 'var(--red)';
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+// ── Analysis ───────────────────────────────────────────────────────────────
+function getLogContent() {
+  // Check uploaded file first
+  if (window._uploadedContent) return window._uploadedContent;
+  // Fall back to paste textarea
+  const ta = document.getElementById('log-content');
+  return ta ? ta.value.trim() : '';
+}
+
+function clearAll() {
+  window._uploadedContent = null;
+  window._uploadedSource = null;
+  const ta = document.getElementById('log-content');
+  const src = document.getElementById('log-source');
+  const out = document.getElementById('stream-output');
+  const pre = document.getElementById('pre-panel');
+  const status = document.getElementById('file-status');
+  if (ta) ta.value='';
+  if (src) src.value='';
+  if (out) out.innerHTML='<span style="color:var(--text3)">// Claude analysis streams here in real-time...</span>';
+  if (pre) pre.innerHTML='<div class="empty"><div class="empty-icon">◈</div><div class="empty-text">Run analysis to see<br>anomaly detection results</div></div>';
+  if (status) { status.textContent=''; }
+  document.getElementById('ioc-card').style.display='none';
+  document.getElementById('saved-banner').classList.remove('show');
+  document.getElementById('stream-status').textContent='idle';
+  document.getElementById('pre-status').textContent='waiting';
+}
+
+async function runAnalysis() {
+  const content = getLogContent();
+  const source = document.getElementById('log-source').value.trim() || 'unknown.log';
+  if (!content) { toast('Please upload a file or paste log content first','error'); return; }
+
+  const btn = document.getElementById('analyse-btn');
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Analysing...';
+  document.getElementById('stream-status').textContent='connecting...';
+  document.getElementById('pre-status').textContent='detecting...';
+  document.getElementById('stream-output').innerHTML='';
+  document.getElementById('saved-banner').classList.remove('show');
+
+  const wsSupported = 'WebSocket' in window;
+  if (wsSupported) {
+    await runWsAnalysis(content, source);
+  } else {
+    await runRestAnalysis(content, source);
+  }
+
+  btn.disabled=false;
+  btn.textContent='Analyse →';
+  window._uploadedContent = null;
+  window._uploadedSource = null;
+}
+
+async function runWsAnalysis(content, source) {
+  const out = document.getElementById('stream-output');
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/ws/analyse`);
+  let _rafBuf = '';
+  let _rafPending = false;
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      ws.close();
+      runRestAnalysis(content, source).then(resolve);
+    }, 8000);
+
+    ws.onopen = () => {
+      clearTimeout(timeout);
+      ws.send(JSON.stringify({ api_key: apiKey(), log_source: source, log_content: content }));
+    };
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === 'pre_analysis') {
+        document.getElementById('pre-status').textContent = 'done';
+        renderPreAnalysis({
+          anomalies: msg.anomalies||0,
+          suspicious_ips: msg.suspicious_ips||[],
+          top_threats: msg.top_threats||[]
+        });
+
+      } else if (msg.type === 'stream_start') {
+        out.innerHTML = '';
+        _rafBuf = '';
+        _rafPending = false;
+        document.getElementById('stream-status').textContent = 'streaming...';
+
+      } else if (msg.type === 'chunk') {
+        _rafBuf += msg.content;
+        if (!_rafPending) {
+          _rafPending = true;
+          requestAnimationFrame(() => {
+            out.appendChild(document.createTextNode(_rafBuf));
+            _rafBuf = '';
+            _rafPending = false;
+            out.scrollTop = out.scrollHeight;
+          });
+        }
+
+      } else if (msg.type === 'stream_end') {
+        document.getElementById('stream-status').textContent = 'complete';
+
+      } else if (msg.type === 'iocs') {
+        const iocs = msg.iocs || {};
+        if (Object.values(iocs).some(v => Array.isArray(v) && v.length > 0)) {
+          renderIOCs(iocs);
+        }
+
+      } else if (msg.type === 'saved') {
+        const banner = document.getElementById('saved-banner');
+        const msgEl = document.getElementById('saved-msg');
+        if (msgEl) msgEl.textContent = msg.scan_id
+          ? `Saved to database (${msg.scan_id.substring(0,8)}...)`
+          : 'Analysis complete';
+        banner.classList.add('show');
+        refreshStats();
+        toast('Analysis complete — saved to history ✓');
+        ws.close();
+        resolve();
+
+      } else if (msg.type === 'error') {
+        out.innerHTML = `<span style="color:var(--red)">Error: ${msg.message}</span>`;
+        document.getElementById('stream-status').textContent = 'error';
+        toast('Analysis error: ' + msg.message, 'error');
+        ws.close();
+        resolve();
+      }
+    };
+
+    ws.onerror = () => {
+      toast('WebSocket failed — falling back to REST', 'error');
+      runRestAnalysis(content, source).then(resolve);
+    };
+
+    ws.onclose = () => { resolve(); };
+  });
+}
+
+async function runRestAnalysis(content, source) {
+  const out = document.getElementById('stream-output');
+  document.getElementById('stream-status').textContent='analysing...';
+  out.innerHTML='<span style="color:var(--text3)">Sending to API...</span>';
+
+  try {
+    const data = await apiFetch('/api/v1/logs/analyse', {
+      method:'POST',
+      body: JSON.stringify({log_source:source, log_content:content})
+    });
+
+    // Pre-analysis results
+    const anomalies = data.results?.anomalies || data.anomalies || {};
+    const iocs = data.results?.iocs || data.iocs || {};
+    renderPreAnalysis({
+      anomalies: anomalies.anomaly_count||0,
+      suspicious_ips: anomalies.suspicious_ips||[],
+      top_threats: (anomalies.top_threats||[]).map(t=>t.type||t)
+    });
+
+    // Stream the analysis text (simulate streaming by revealing chunks)
+    const analysis = data.results?.llm_analysis || data.llm_analysis || 'No LLM analysis — check API key';
+    out.innerHTML='';
+    await streamText(out, analysis);
+
+    document.getElementById('stream-status').textContent='complete';
+
+    // IOCs
+    if (Object.values(iocs).some(v=>Array.isArray(v)&&v.length>0)) {
+      renderIOCs(iocs);
+    }
+
+    // Show saved banner
+    const banner = document.getElementById('saved-banner');
+    const msg = document.getElementById('saved-msg');
+    const scanId = data.scan_id || data.results?.scan_id;
+    if (msg) msg.textContent = scanId ? `Saved to database (${scanId.substring(0,8)}...)` : 'Analysis complete';
+    banner.classList.add('show');
+
+    // Refresh stats
+    refreshStats();
+    toast('Analysis complete — saved to history ✓');
+
+  } catch(e) {
+    out.innerHTML=`<span style="color:var(--red)">Error: ${e.message}\n\nCheck server is running and API key is correct.</span>`;
+    document.getElementById('stream-status').textContent='error';
+    toast('Analysis failed: '+e.message,'error');
+  }
+}
+
+async function streamText(el, text) {
+  const chunkSize = 12;
+  for (let i = 0; i < text.length; i += chunkSize) {
+    el.appendChild(document.createTextNode(text.slice(i, i + chunkSize)));
+    el.scrollTop = el.scrollHeight;
+    await new Promise(r => requestAnimationFrame(r));
+  }
+}
+
+function renderPreAnalysis(msg) {
+  const panel = document.getElementById('pre-panel');
+  const ips = msg.suspicious_ips||[];
+  const threats = msg.top_threats||[];
+
+  const badge = document.getElementById('sb-anomaly-count');
+  if (badge && msg.anomalies>0) { badge.textContent=msg.anomalies; badge.style.display=''; }
+
+  panel.innerHTML=`
+    <div class="pre-panel">
+      <div class="pre-stat"><div class="pre-val c-red">${msg.anomalies||0}</div><div class="pre-lbl">Anomalies</div></div>
+      <div class="pre-stat"><div class="pre-val c-orange">${ips.length}</div><div class="pre-lbl">Suspicious IPs</div></div>
+      <div class="pre-stat"><div class="pre-val c-blue">${threats.length}</div><div class="pre-lbl">Threat types</div></div>
+    </div>
+    ${ips.length>0?`
+    <div style="margin-top:10px;">
+      <div class="section-label">Suspicious IPs</div>
+      <div class="ioc-grid">${ips.map(ip=>`<span class="ioc-chip ioc-ip">${ip}</span>`).join('')}</div>
+    </div>`:''}
+    ${threats.length>0?`
+    <div style="margin-top:10px;">
+      <div class="section-label">Detected patterns</div>
+      <div class="threat-list">
+        ${threats.slice(0,5).map(t=>`
+          <div class="threat-item threat-high">
+            <div class="threat-text">${t}</div>
+            <span class="sev-badge sev-high">DETECTED</span>
+          </div>`).join('')}
+      </div>
+    </div>`:''}`;
+
+  document.getElementById('pre-status').textContent='complete';
+}
+
+function renderIOCs(iocs) {
+  const card = document.getElementById('ioc-card');
+  const body = document.getElementById('ioc-body');
+  if (!card||!body) return;
+  card.style.display='block';
+  body.innerHTML=Object.entries(iocs).map(([type,items])=>{
+    if (!Array.isArray(items)||items.length===0) return '';
+    const cls = type==='ips'?'ioc-ip':type==='domains'?'ioc-domain':'';
+    return `<div style="margin-bottom:12px;">
+      <div class="section-label">${type} (${items.length})</div>
+      <div class="ioc-grid">${items.slice(0,20).map(i=>`<span class="ioc-chip ${cls}">${i}</span>`).join('')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Scan History ───────────────────────────────────────────────────────────
+async function renderScans() {
+  setSidebarActive('sb-scans');
+  document.getElementById('nb-scans').classList.add('active');
+  const main = document.getElementById('main-content');
+  main.innerHTML=`<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading...</div>`;
+
+  let data={scans:[],count:0};
+  try { data=await apiFetch('/api/v1/scans?limit=50'); } catch{}
+
+  const sb=document.getElementById('sb-scan-count');
+  if (sb){ sb.textContent=data.count||''; sb.style.display=data.count?'':'none'; }
+
+  main.innerHTML=`
+    <div class="card">
+      <div class="card-header">
+        <span class="c-accent">≡</span>
+        <span class="card-title">Scan history</span>
+        <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">${data.count} total</span>
+        <button class="btn btn-ghost" style="margin-left:auto;font-size:11px;" onclick="renderScans()">↻ Refresh</button>
+        <button class="btn btn-green" style="font-size:11px;" onclick="showPage('analyse')">+ New analysis</button>
+      </div>
+      <div class="card-body" style="padding:0">
+        ${data.scans.length===0
+          ?`<div class="empty" style="padding:40px">
+              <div class="empty-icon">⊘</div>
+              <div class="empty-text">No scans yet.<br>
+                <button class="btn btn-primary" style="margin-top:12px" onclick="showPage('analyse')">Run first analysis →</button>
+              </div>
+            </div>`
+          :`<table class="scan-table">
+              <thead><tr>
+                <th>Target / Source</th><th>Type</th><th>Status</th>
+                <th>Findings</th><th>Critical</th><th>Created</th><th></th>
+              </tr></thead>
+              <tbody>
+                ${data.scans.map(s=>`
+                  <tr>
+                    <td style="color:var(--text);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.target}</td>
+                    <td>${s.scan_type}</td>
+                    <td><span class="status-chip s-${s.status}">${s.status}</span></td>
+                    <td class="c-orange">${s.finding_count||0}</td>
+                    <td class="c-red">${s.critical_count||0}</td>
+                    <td style="color:var(--text3)">${formatDate(s.created_at)}</td>
+                    <td style="display:flex;gap:6px;align-items:center">
+                      <button class="btn btn-ghost" style="padding:3px 10px;font-size:10px" onclick="viewScan('${s.id}')">View</button>
+                      ${s.status==='completed'?`<button class="btn btn-green" style="padding:3px 10px;font-size:10px" onclick="downloadPDF('${s.id}')">⬇ PDF</button>`:''}
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>`}
+      </div>
+    </div>`;
+
+  // Auto-refresh every 10 seconds
+  scanPollInterval = setInterval(async () => {
+    try {
+      const fresh = await apiFetch('/api/v1/scans?limit=50');
+      if (fresh.count !== data.count) {
+        data = fresh;
+        renderScans();
+      }
+    } catch{}
+  }, 30000);
+}
+
+async function viewScan(scanId) {
+  const main=document.getElementById('main-content');
+  main.innerHTML=`<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading scan...</div>`;
+  try {
+    const scan=await apiFetch(`/api/v1/scans/${scanId}`);
+    main.innerHTML=`
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px">
+        <button class="btn btn-ghost" style="font-size:11px" onclick="renderScans()">← Back</button>
+        <span style="font-family:var(--mono);font-size:12px;color:var(--text2)">${scan.target}</span>
+        <span class="status-chip s-${scan.status}" style="margin-left:auto">${scan.status}</span>
+        ${scan.status==='completed'?`<button class="btn btn-green" style="font-size:11px" onclick="downloadPDF('${scanId}')">⬇ PDF Report</button>`:''}
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val c-accent">${scan.finding_count||0}</div><div class="stat-lbl">Total findings</div></div>
+        <div class="stat-card"><div class="stat-val c-red">${scan.critical_count||0}</div><div class="stat-lbl">Critical</div></div>
+        <div class="stat-card"><div class="stat-val c-orange">${scan.high_count||0}</div><div class="stat-lbl">High</div></div>
+        <div class="stat-card"><div class="stat-val" style="font-size:14px;color:var(--text2)">${scan.scan_type}</div><div class="stat-lbl">Type · ${formatDate(scan.created_at)}</div></div>
+      </div>
+      ${scan.findings&&scan.findings.length>0?`
+      <div class="card">
+        <div class="card-header"><span class="c-red">◉</span><span class="card-title">Findings (${scan.findings.length})</span></div>
+        <div class="card-body">
+          <div class="threat-list">
+            ${scan.findings.map(f=>`
+              <div class="threat-item threat-${f.severity}">
+                <div style="flex:1">
+                  <div class="threat-text">${f.title}</div>
+                  ${f.mitre_attack?`<div class="threat-ttp">${f.mitre_attack}</div>`:''}
+                  ${f.cve_id?`<div class="threat-ttp">CVE: ${f.cve_id} · CVSS: ${f.cvss_score||'N/A'}</div>`:''}
+                </div>
+                <span class="sev-badge sev-${f.severity}">${f.severity.toUpperCase()}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>`:''}
+      ${scan.llm_analysis?`
+      <div class="card">
+        <div class="card-header"><span class="c-green">▸</span><span class="card-title">AI analysis</span></div>
+        <div class="card-body">
+          <div class="stream-box" style="color:var(--text);max-height:500px">${escHtml(scan.llm_analysis)}</div>
+        </div>
+      </div>`:''}`;
+  } catch(e) {
+    main.innerHTML=`<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`;
+  }
+}
+
+async function downloadPDF(scanId) {
+  const key = document.getElementById('api-key').value.trim();
+  if (!key) { toast('Enter your API key first', 'error'); return; }
+  try {
+    toast('Generating PDF...');
+    const response = await fetch(`${API}/api/v1/scans/${scanId}/report`, {
+      headers: {'X-API-Key': key}
+    });
+    if (!response.ok) {
+      let detail = response.status;
+      try { const err = await response.json(); detail = err.detail || detail; } catch{}
+      toast('PDF failed: ' + detail, 'error');
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sentinelai_report_${scanId.substring(0,8)}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('PDF downloaded ✓');
+  } catch(e) {
+    toast('PDF error: ' + e.message, 'error');
+  }
+}
+
+// ── Stats refresh ──────────────────────────────────────────────────────────
+async function refreshStats() {
+  try {
+    const s = await apiFetch('/api/v1/stats');
+    const sb = document.getElementById('sb-scan-count');
+    if (sb) { sb.textContent=s.total_scans||''; sb.style.display=s.total_scans?'':'none'; }
+  } catch{}
+}
+
+// ── Attack Chain Correlator ────────────────────────────────────────────────
+let _corrSources = [];
+
+function renderCorrelate() {
+  setSidebarActive('sb-correlate');
+  document.getElementById('nb-correlate').classList.add('active');
+
+  _corrSources = [
+    {source:'', content:''},
+    {source:'', content:''}
+  ];
+
+  const main = document.getElementById('main-content');
+  main.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <span style="color:var(--accent)">⛓</span>
+        <span class="card-title">Multi-Log Attack Chain Correlator</span>
+        <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">2–10 sources</span>
+      </div>
+      <div class="card-body">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px;font-family:var(--mono)">
+          Upload logs from multiple systems. Claude reconstructs the full attack chain across sources — pivot points, shared IOCs, unified ATT&CK timeline.
+        </div>
+        <div id="corr-sources"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="btn btn-ghost" onclick="corrAddSource()" id="corr-add-btn">+ Add source</button>
+          <button class="btn btn-primary" onclick="runCorrelation()" id="corr-run-btn">Correlate →</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:8px;" id="corr-hint">
+          Minimum 2 sources required. Add logs from web server, firewall, auth, endpoint, DNS, etc.
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="corr-results" style="display:none">
+      <div class="card-header">
+        <span class="c-red">◉</span>
+        <span class="card-title">Correlation Results</span>
+        <span id="corr-meta" style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono)"></span>
+      </div>
+      <div class="card-body" id="corr-results-body"></div>
+    </div>
+
+    <div class="card" id="corr-chain-card" style="display:none">
+      <div class="card-header">
+        <span class="c-green">▸</span>
+        <span class="card-title">Attack Chain Analysis</span>
+        <span id="corr-status" style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono)">idle</span>
+      </div>
+      <div class="card-body">
+        <div class="stream-box" id="corr-output" style="color:var(--text);max-height:600px">
+          <span style="color:var(--text3)">// Attack chain will appear here...</span>
+        </div>
+      </div>
+    </div>`;
+
+  renderCorrSources();
+}
+
+function renderCorrSources() {
+  const container = document.getElementById('corr-sources');
+  if (!container) return;
+  container.innerHTML = _corrSources.map((s, i) => `
+    <div style="border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;background:var(--bg)">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text3);min-width:60px">SOURCE ${i+1}</span>
+        <input class="log-source-input" style="flex:1" placeholder="Source name (e.g. nginx.log, auth.log, firewall)"
+          value="${escHtml(s.source)}" oninput="_corrSources[${i}].source=this.value">
+        ${_corrSources.length > 2 ? `<button class="btn btn-ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="corrRemoveSource(${i})">✕</button>` : ''}
+      </div>
+      <textarea class="log-textarea" style="min-height:90px" placeholder="Paste log content for this source..."
+        oninput="_corrSources[${i}].content=this.value">${escHtml(s.content)}</textarea>
+      <div style="margin-top:6px;">
+        <label style="font-size:10px;color:var(--text3);font-family:var(--mono);cursor:pointer;">
+          <input type="file" accept=".log,.txt" style="display:none" onchange="corrLoadFile(event,${i})">
+          ⬆ Upload file instead
+        </label>
+      </div>
+    </div>`).join('');
+
+  const addBtn = document.getElementById('corr-add-btn');
+  if (addBtn) addBtn.style.display = _corrSources.length >= 10 ? 'none' : '';
+}
+
+function corrAddSource() {
+  if (_corrSources.length >= 10) return;
+  _corrSources.push({source:'', content:''});
+  renderCorrSources();
+}
+
+function corrRemoveSource(i) {
+  if (_corrSources.length <= 2) return;
+  _corrSources.splice(i, 1);
+  renderCorrSources();
+}
+
+function corrLoadFile(event, i) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    _corrSources[i].content = e.target.result;
+    _corrSources[i].source = _corrSources[i].source || file.name;
+    renderCorrSources();
+    toast(`Loaded ${file.name}`);
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+async function runCorrelation() {
+  const filled = _corrSources.filter(s => s.content.trim());
+  if (filled.length < 2) {
+    toast('Add content to at least 2 sources', 'error'); return;
+  }
+
+  const btn = document.getElementById('corr-run-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Correlating...';
+  document.getElementById('corr-status').textContent = 'analysing...';
+  document.getElementById('corr-chain-card').style.display = '';
+  document.getElementById('corr-output').innerHTML = '<span style="color:var(--text3)">Running per-source analysis in parallel...</span>';
+
+  try {
+    const result = await apiFetch('/api/v1/logs/correlate', {
+      method: 'POST',
+      body: JSON.stringify({
+        logs: filled.map(s => ({log_source: s.source || 'unknown', log_content: s.content}))
+      })
+    });
+
+    // Render summary bar
+    const sharedIps = result.shared_suspicious_ips || [];
+    document.getElementById('corr-results').style.display = '';
+    document.getElementById('corr-meta').textContent =
+      `${result.sources_analysed} sources · ${result.total_anomalies} anomalies · ${sharedIps.length} shared IPs`;
+
+    document.getElementById('corr-results-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+        <div class="stat-card"><div class="stat-val c-accent">${result.sources_analysed||0}</div><div class="stat-lbl">Sources analysed</div></div>
+        <div class="stat-card"><div class="stat-val c-red">${result.total_anomalies||0}</div><div class="stat-lbl">Total anomalies</div></div>
+        <div class="stat-card"><div class="stat-val c-orange">${sharedIps.length}</div><div class="stat-lbl">Shared IPs</div></div>
+      </div>
+      ${sharedIps.length > 0 ? `
+        <div style="margin-bottom:14px">
+          <div class="section-label">Shared suspicious IPs (appear in multiple sources)</div>
+          <div class="ioc-grid" style="margin-top:6px">
+            ${sharedIps.map(ip=>`<span class="ioc-chip ioc-ip">${ip}</span>`).join('')}
+          </div>
+        </div>` : ''}
+      ${(result.per_source||[]).length > 0 ? `
+        <div>
+          <div class="section-label">Per-source breakdown</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:6px">
+            ${result.per_source.map(s=>`
+              <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px">
+                <div style="font-family:var(--mono);font-size:11px;color:var(--text);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(s.source)}</div>
+                <div style="font-size:10px;color:var(--text3)">${s.log_type||'unknown'} · ${s.lines_analysed||0} lines</div>
+                <div style="display:flex;gap:8px;margin-top:6px">
+                  <span style="font-size:10px;font-family:var(--mono)" class="c-red">⚠ ${s.anomaly_count||0}</span>
+                  <span style="font-size:10px;font-family:var(--mono);color:var(--text3)">${(s.suspicious_ips||[]).length} sus IPs</span>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>` : ''}`;
+
+    // Stream the correlation analysis text
+    const chainOut = document.getElementById('corr-output');
+    chainOut.innerHTML = '';
+    document.getElementById('corr-status').textContent = 'rendering...';
+    await streamText(chainOut, result.correlation_analysis || 'No correlation analysis returned.');
+    document.getElementById('corr-status').textContent = 'complete';
+    toast('Attack chain correlation complete ✓');
+
+  } catch(e) {
+    document.getElementById('corr-output').innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+    document.getElementById('corr-status').textContent = 'error';
+    toast('Correlation failed: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Correlate →';
+}
+
+// ── Schedules ──────────────────────────────────────────────────────────────
+async function renderSchedules() {
+  setSidebarActive('sb-schedules');
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading schedules...</div>`;
+
+  let data = {count:0, schedules:[]};
+  try { data = await apiFetch('/api/v1/schedules'); } catch(e) {
+    main.innerHTML=`<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`; return;
+  }
+
+  const badge = document.getElementById('sb-sched-count');
+  if (badge) { badge.textContent = data.count||''; badge.style.display = data.count ? '' : 'none'; }
+
+  const intervalLabel = h => h===1?'Every hour':h===6?'Every 6 h':h===24?'Daily':h===168?'Weekly':`Every ${h} h`;
+
+  main.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <span class="c-accent">⏱</span>
+        <span class="card-title">Scheduled Scans</span>
+        <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">${data.count} total</span>
+        <button class="btn btn-green" style="margin-left:auto;font-size:11px;" onclick="showCreateSchedule()">+ New schedule</button>
+      </div>
+      <div class="card-body" style="padding:0" id="sched-list">
+        ${data.schedules.length===0
+          ? `<div class="empty" style="padding:40px">
+               <div class="empty-icon">⏱</div>
+               <div class="empty-text">No schedules yet.<br>
+                 <button class="btn btn-primary" style="margin-top:12px" onclick="showCreateSchedule()">Create first schedule →</button>
+               </div>
+             </div>`
+          : `<table class="scan-table">
+               <thead><tr>
+                 <th>Name</th><th>Target</th><th>Type</th><th>Interval</th>
+                 <th>Last run</th><th>Next run</th><th>Status</th><th></th>
+               </tr></thead>
+               <tbody>
+                 ${data.schedules.map(s=>`
+                   <tr>
+                     <td style="color:var(--text)">${escHtml(s.name)}</td>
+                     <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(s.target)}</td>
+                     <td>${s.scan_type}</td>
+                     <td>${intervalLabel(s.interval_hours)}</td>
+                     <td style="color:var(--text3)">${formatDate(s.last_run)}</td>
+                     <td style="color:var(--text3)">${formatDate(s.next_run)}</td>
+                     <td>
+                       <span class="status-chip ${s.enabled?'s-completed':'s-pending'}">${s.enabled?'active':'paused'}</span>
+                     </td>
+                     <td style="display:flex;gap:6px;align-items:center">
+                       <button class="btn btn-ghost" style="padding:3px 10px;font-size:10px"
+                         onclick="toggleSchedule('${s.id}','${escHtml(s.name)}')">${s.enabled?'Pause':'Resume'}</button>
+                       <button class="btn btn-ghost" style="padding:3px 10px;font-size:10px;color:var(--red)"
+                         onclick="deleteSchedule('${s.id}','${escHtml(s.name)}')">Delete</button>
+                     </td>
+                   </tr>`).join('')}
+               </tbody>
+             </table>`}
+      </div>
+    </div>
+
+    <!-- Create form (hidden by default) -->
+    <div class="card" id="create-sched-card" style="display:none">
+      <div class="card-header"><span class="c-green">+</span><span class="card-title">New Schedule</span></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <div class="section-label">Schedule name</div>
+            <input class="log-source-input" id="sched-name" placeholder="e.g. Daily recon on api.example.com" style="width:100%">
+          </div>
+          <div>
+            <div class="section-label">Target</div>
+            <input class="log-source-input" id="sched-target" placeholder="e.g. api.example.com" style="width:100%">
+          </div>
+          <div>
+            <div class="section-label">Scan type</div>
+            <select class="log-source-input" id="sched-type" style="width:100%">
+              <option value="recon">Recon (DNS + ports)</option>
+              <option value="vuln">Vuln analysis</option>
+              <option value="full">Full scan</option>
+            </select>
+          </div>
+          <div>
+            <div class="section-label">Run interval</div>
+            <select class="log-source-input" id="sched-interval" style="width:100%">
+              <option value="1">Every hour</option>
+              <option value="6">Every 6 hours</option>
+              <option value="24" selected>Daily</option>
+              <option value="168">Weekly</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="submitSchedule()">Create schedule</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('create-sched-card').style.display='none'">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function showCreateSchedule() {
+  const card = document.getElementById('create-sched-card');
+  if (card) { card.style.display = ''; card.scrollIntoView({behavior:'smooth'}); }
+}
+
+async function submitSchedule() {
+  const name = document.getElementById('sched-name').value.trim();
+  const target = document.getElementById('sched-target').value.trim();
+  const scan_type = document.getElementById('sched-type').value;
+  const interval_hours = parseInt(document.getElementById('sched-interval').value);
+  if (!name || !target) { toast('Name and target are required', 'error'); return; }
+  try {
+    await apiFetch('/api/v1/schedules', {
+      method: 'POST',
+      body: JSON.stringify({name, target, scan_type, interval_hours})
+    });
+    toast('Schedule created ✓');
+    renderSchedules();
+  } catch(e) {
+    toast('Failed to create schedule: ' + e.message, 'error');
+  }
+}
+
+async function toggleSchedule(id, name) {
+  try {
+    const r = await apiFetch(`/api/v1/schedules/${id}/toggle`, {method:'PATCH'});
+    toast(`"${name}" ${r.schedule.enabled ? 'resumed' : 'paused'} ✓`);
+    renderSchedules();
+  } catch(e) {
+    toast('Toggle failed: ' + e.message, 'error');
+  }
+}
+
+async function deleteSchedule(id, name) {
+  if (!confirm(`Delete schedule "${name}"?`)) return;
+  try {
+    await apiFetch(`/api/v1/schedules/${id}`, {method:'DELETE'});
+    toast(`"${name}" deleted`);
+    renderSchedules();
+  } catch(e) {
+    toast('Delete failed: ' + e.message, 'error');
+  }
+}
+
+// ── MITRE ATT&CK Heatmap ──────────────────────────────────────────────────
+const _TACTIC_ORDER = [
+  'Reconnaissance','Initial Access','Execution','Persistence',
+  'Privilege Escalation','Defense Evasion','Credential Access',
+  'Discovery','Lateral Movement','Collection','Command & Control',
+  'Exfiltration','Impact'
+];
+
+const _TACTIC_ABBR = {
+  'Reconnaissance':'Recon', 'Initial Access':'Init. Access', 'Execution':'Exec.',
+  'Persistence':'Persist.', 'Privilege Escalation':'Priv. Esc.', 'Defense Evasion':'Def. Evasion',
+  'Credential Access':'Cred. Access', 'Discovery':'Discovery', 'Lateral Movement':'Lateral Mv.',
+  'Collection':'Collect.', 'Command & Control':'C2', 'Exfiltration':'Exfil.', 'Impact':'Impact'
+};
+
+function mitreHeatColor(count, maxCount) {
+  if (!count || !maxCount) return 'var(--bg2)';
+  const t = count / maxCount;
+  if (t < 0.25) return 'rgba(108,99,255,0.25)';
+  if (t < 0.5)  return 'rgba(245,158,11,0.45)';
+  if (t < 0.75) return 'rgba(245,158,11,0.75)';
+  return 'rgba(226,75,74,0.85)';
+}
+
+function mitreTextColor(count, maxCount) {
+  if (!count || !maxCount) return 'var(--text3)';
+  const t = count / maxCount;
+  return t >= 0.5 ? 'var(--text)' : 'var(--text2)';
+}
+
+async function renderMitre() {
+  setSidebarActive('sb-mitre');
+  document.getElementById('nb-mitre').classList.add('active');
+
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading MITRE data...</div>`;
+
+  let data;
+  try {
+    data = await apiFetch('/api/v1/mitre/heatmap');
+  } catch(e) {
+    main.innerHTML = `<div class="card"><div class="card-body" style="color:var(--red)">Failed to load: ${e.message}</div></div>`;
+    return;
+  }
+
+  const techniques = data.techniques || [];
+  const maxCount = techniques.reduce((m, t) => Math.max(m, t.count), 0);
+
+  // Group by tactic preserving order
+  const byTactic = {};
+  for (const tac of _TACTIC_ORDER) byTactic[tac] = [];
+  for (const t of techniques) {
+    if (!byTactic[t.tactic]) byTactic[t.tactic] = [];
+    byTactic[t.tactic].push(t);
+  }
+  const activeTactics = _TACTIC_ORDER.filter(tac => byTactic[tac] && byTactic[tac].length > 0);
+
+  main.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <span style="color:var(--accent)">◧</span>
+        <span class="card-title">MITRE ATT&CK Heatmap</span>
+        <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">based on stored findings</span>
+      </div>
+      <div class="card-body">
+        <div class="stat-grid" style="margin-bottom:16px">
+          <div class="stat-card"><div class="stat-val c-accent">${data.total_findings_with_ttp||0}</div><div class="stat-lbl">Findings with TTP</div></div>
+          <div class="stat-card"><div class="stat-val c-red">${data.unique_techniques||0}</div><div class="stat-lbl">Unique techniques</div></div>
+          <div class="stat-card"><div class="stat-val c-orange">${data.unique_tactics||0}</div><div class="stat-lbl">Tactics covered</div></div>
+          <div class="stat-card">
+            <div class="stat-val" style="font-size:14px;display:flex;gap:6px;align-items:center;margin-top:4px">
+              <span style="background:rgba(108,99,255,0.25);padding:2px 8px;border-radius:3px;font-size:11px">Low</span>
+              <span style="background:rgba(245,158,11,0.45);padding:2px 8px;border-radius:3px;font-size:11px">Med</span>
+              <span style="background:rgba(226,75,74,0.85);padding:2px 8px;border-radius:3px;font-size:11px">High</span>
+            </div>
+            <div class="stat-lbl">Heat scale</div>
+          </div>
+        </div>
+
+        ${techniques.length === 0 ? `
+          <div style="text-align:center;padding:40px;color:var(--text3);font-family:var(--mono);font-size:12px">
+            No findings with MITRE ATT&CK tags yet.<br>Run some log analyses or scans to populate the heatmap.
+          </div>` : `
+          <div style="overflow-x:auto;padding-bottom:8px">
+            <div style="display:flex;gap:2px;min-width:max-content">
+              ${activeTactics.map(tac => {
+                const cells = byTactic[tac];
+                return `<div style="min-width:130px;max-width:150px">
+                  <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:4px 4px 0 0;padding:6px 8px;font-size:9px;font-family:var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${tac}">
+                    ${_TACTIC_ABBR[tac]||tac}
+                  </div>
+                  ${cells.map(t => `
+                    <div style="background:${mitreHeatColor(t.count, maxCount)};border:1px solid var(--border);border-top:none;padding:7px 8px;cursor:default;position:relative"
+                         title="${t.id}: ${t.name}\nCount: ${t.count}\nCritical: ${t.severities.critical}  High: ${t.severities.high}  Medium: ${t.severities.medium}">
+                      <div style="font-family:var(--mono);font-size:9px;color:${mitreTextColor(t.count, maxCount)};margin-bottom:2px">${t.id}</div>
+                      <div style="font-size:9px;color:var(--text2);line-height:1.3;word-break:break-word">${t.name}</div>
+                      <div style="position:absolute;top:4px;right:5px;font-family:var(--mono);font-size:10px;font-weight:600;color:${mitreTextColor(t.count,maxCount)}">${t.count}</div>
+                    </div>`).join('')}
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+
+          <div style="margin-top:20px">
+            <div class="section-label">Top techniques by hit count</div>
+            <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:11px">
+              <thead>
+                <tr style="color:var(--text3);font-family:var(--mono);font-size:10px;border-bottom:1px solid var(--border)">
+                  <th style="text-align:left;padding:5px 8px">Technique</th>
+                  <th style="text-align:left;padding:5px 8px">Tactic</th>
+                  <th style="text-align:right;padding:5px 8px">Hits</th>
+                  <th style="text-align:right;padding:5px 8px">Critical</th>
+                  <th style="text-align:right;padding:5px 8px">High</th>
+                  <th style="text-align:right;padding:5px 8px">Medium</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${[...techniques].sort((a,b)=>b.count-a.count).map((t,i) => `
+                  <tr style="border-bottom:1px solid var(--border);${i%2===0?'background:var(--bg2)':''}">
+                    <td style="padding:6px 8px">
+                      <span style="font-family:var(--mono);font-size:10px;color:var(--accent);margin-right:6px">${t.id}</span>
+                      <span style="color:var(--text)">${t.name}</span>
+                    </td>
+                    <td style="padding:6px 8px;color:var(--text2)">${t.tactic}</td>
+                    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-weight:600;color:${mitreHeatColor(t.count,maxCount)===`rgba(226,75,74,0.85)`?'var(--red)':'var(--text)'}">${t.count}</td>
+                    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--red)">${t.severities.critical||0}</td>
+                    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--orange)">${t.severities.high||0}</td>
+                    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--text2)">${t.severities.medium||0}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`}
+      </div>
+    </div>`;
+}
+
+// ── Vuln Scan ──────────────────────────────────────────────────────────────
+async function renderVuln() {
+  setSidebarActive('sb-vuln');
+  document.getElementById('nb-vuln').classList.add('active');
+  const main = document.getElementById('main-content');
+  main.innerHTML = `
+    <div class="card">
+      <div class="card-header"><span class="c-red">◈</span><span class="card-title">Vulnerability Scanner</span></div>
+      <div class="card-body">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px;font-family:var(--mono)">
+          Full security assessment: DNS/port recon + service fingerprinting + vulnerability analysis + AI report.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <div class="section-label">Target (hostname or IP)</div>
+            <input class="log-source-input" id="vuln-target" placeholder="e.g. example.com" style="width:100%">
+          </div>
+          <div>
+            <div class="section-label">Port range</div>
+            <input class="log-source-input" id="vuln-ports" value="1-1024" style="width:100%">
+          </div>
+          <div>
+            <div class="section-label">Authorized by</div>
+            <input class="log-source-input" id="vuln-auth" placeholder="Your name / org" style="width:100%">
+          </div>
+        </div>
+        <div style="background:rgba(226,75,74,0.08);border:1px solid rgba(226,75,74,0.25);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:var(--red);font-family:var(--mono)">
+          ⚠ Only scan systems you own or have explicit written permission to test. Unauthorized scanning is illegal.
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:11px;font-family:var(--mono);color:var(--text2);margin-bottom:14px;cursor:pointer">
+          <input type="checkbox" id="vuln-confirm"> I confirm I am authorized to scan this target
+        </label>
+        <button class="btn btn-primary" onclick="runVulnScan()" id="vuln-btn">Start Full Scan →</button>
+      </div>
+    </div>
+    <div class="card" id="vuln-result" style="display:none">
+      <div class="card-header"><span class="c-green">▸</span><span class="card-title">Scan Status</span><span id="vuln-status" style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono)">pending</span></div>
+      <div class="card-body" id="vuln-result-body"></div>
+    </div>`;
+}
+
+async function runVulnScan() {
+  const target  = document.getElementById('vuln-target').value.trim();
+  const ports   = document.getElementById('vuln-ports').value.trim() || '1-1024';
+  const authBy  = document.getElementById('vuln-auth').value.trim();
+  const confirm = document.getElementById('vuln-confirm').checked;
+  if (!target)   { toast('Enter a target', 'error'); return; }
+  if (!authBy)   { toast('Enter authorization context', 'error'); return; }
+  if (!confirm)  { toast('Check the authorization confirmation', 'error'); return; }
+  if (!apiKey()) { toast('Enter your X-API-Key above to run scans', 'error'); return; }
+
+  const btn = document.getElementById('vuln-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Starting scan...';
+  document.getElementById('vuln-result').style.display = '';
+  document.getElementById('vuln-status').textContent = 'starting...';
+  document.getElementById('vuln-result-body').innerHTML = '<div style="color:var(--text2);font-family:var(--mono);font-size:11px"><span class="spinner"></span>Launching full scan pipeline...</div>';
+
+  try {
+    const data = await apiFetch('/api/v1/scan/full', {
+      method: 'POST',
+      body: JSON.stringify({
+        target, ports,
+        authorization: {authorized_by: authBy, confirm: true}
+      })
+    });
+    document.getElementById('vuln-status').textContent = 'running';
+    document.getElementById('vuln-result-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="stat-card"><div class="stat-val c-accent" style="font-size:18px">${data.target}</div><div class="stat-lbl">Target</div></div>
+        <div class="stat-card"><div class="stat-val" style="font-size:18px;color:var(--text2)">${data.scan_type}</div><div class="stat-lbl">Type</div></div>
+        <div class="stat-card"><div class="stat-val" style="font-size:18px" id="vuln-scan-status-val">running</div><div class="stat-lbl">Status</div></div>
+      </div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:12px">
+        Scan ID: <span style="color:var(--accent)">${data.scan_id || 'pending'}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text2);font-family:var(--mono)">${data.message}</div>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn btn-ghost" style="font-size:11px" onclick="showPage('scans')">Monitor in Scan History →</button>
+      </div>`;
+    toast('Full scan started — monitor progress in Scan History');
+  } catch(e) {
+    document.getElementById('vuln-result-body').innerHTML = `<div style="color:var(--red);font-family:var(--mono);font-size:11px">Error: ${e.message}</div>`;
+    document.getElementById('vuln-status').textContent = 'error';
+    toast('Scan failed: ' + e.message, 'error');
+  }
+  btn.disabled = false; btn.textContent = 'Start Full Scan →';
+}
+
+// ── API Key management ─────────────────────────────────────────────────────
+async function renderKeys() {
+  setSidebarActive('sb-keys');
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading...</div>`;
+
+  let data = {keys:[]};
+  try { data = await apiFetch('/api/v1/user/keys'); } catch(e) {
+    main.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`; return;
+  }
+
+  main.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <span class="c-accent">⚿</span>
+        <span class="card-title">API Keys</span>
+        <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">${data.keys.length} active</span>
+        <button class="btn btn-green" style="margin-left:auto;font-size:11px" onclick="showCreateKey()">+ Generate key</button>
+      </div>
+      <div class="card-body" id="keys-list-body">
+        ${data.keys.length === 0
+          ? `<div class="empty"><div class="empty-icon">⚿</div><div class="empty-text">No API keys yet.<br>Generate one to start using the scan APIs.</div></div>`
+          : `<table class="scan-table">
+              <thead><tr><th>Name</th><th>Prefix</th><th>Usage</th><th>Last used</th><th>Created</th><th></th></tr></thead>
+              <tbody>
+                ${data.keys.map(k=>`
+                  <tr>
+                    <td style="color:var(--text)">${escHtml(k.name)}</td>
+                    <td style="font-family:var(--mono);color:var(--accent)">${escHtml(k.prefix)}...</td>
+                    <td>${k.usage_count || 0} requests</td>
+                    <td style="color:var(--text3)">${formatDate(k.last_used_at)}</td>
+                    <td style="color:var(--text3)">${formatDate(k.created_at)}</td>
+                    <td style="display:flex;gap:6px">
+                      <button class="btn btn-ghost" style="padding:3px 10px;font-size:10px" onclick="rotateKey('${k.id}','${escHtml(k.name)}')">Rotate</button>
+                      <button class="btn btn-ghost" style="padding:3px 10px;font-size:10px;color:var(--red)" onclick="revokeKey('${k.id}','${escHtml(k.name)}')">Revoke</button>
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>`}
+      </div>
+    </div>
+
+    <!-- Create key form -->
+    <div class="card" id="create-key-card" style="display:none">
+      <div class="card-header"><span class="c-green">+</span><span class="card-title">Generate New API Key</span></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Key name (to identify it later)</label>
+          <input class="log-source-input" id="new-key-name" placeholder="e.g. Production, Dev laptop, CI/CD" style="width:100%;max-width:360px">
+        </div>
+        <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:14px">
+          The full key is shown ONCE after creation. Enter it into the X-API-Key field in the topbar to use scan features.
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="createKey()">Generate →</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('create-key-card').style.display='none'">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function showCreateKey() {
+  const card = document.getElementById('create-key-card');
+  if (card) { card.style.display = ''; card.scrollIntoView({behavior:'smooth'}); }
+}
+
+async function createKey() {
+  const name = document.getElementById('new-key-name').value.trim();
+  if (!name) { toast('Enter a key name', 'error'); return; }
+  try {
+    const data = await apiFetch('/api/v1/user/keys', {method:'POST', body: JSON.stringify({name})});
+    document.getElementById('key-modal-value').textContent = data.key;
+    document.getElementById('key-modal').style.display = 'flex';
+    document.getElementById('api-key').value = data.key;
+    toast('Key generated — copy it now!');
+    renderKeys();
+  } catch(e) {
+    toast('Failed: ' + e.message, 'error');
+  }
+}
+
+async function revokeKey(id, name) {
+  if (!confirm(`Revoke key "${name}"? This cannot be undone.`)) return;
+  try {
+    await apiFetch(`/api/v1/user/keys/${id}`, {method:'DELETE'});
+    toast(`Key "${name}" revoked`);
+    renderKeys();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function rotateKey(id, name) {
+  if (!confirm(`Rotate key "${name}"? The current key will stop working immediately.`)) return;
+  try {
+    const data = await apiFetch(`/api/v1/user/keys/${id}/rotate`, {method:'POST'});
+    document.getElementById('key-modal-value').textContent = data.key;
+    document.getElementById('key-modal').style.display = 'flex';
+    document.getElementById('api-key').value = data.key;
+    toast('Key rotated — copy the new key now!');
+    renderKeys();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+function copyKey() {
+  const val = document.getElementById('key-modal-value').textContent;
+  navigator.clipboard.writeText(val).then(() => toast('Key copied to clipboard ✓')).catch(() => toast('Copy failed — select and copy manually', 'error'));
+}
+
+// ── Alert Rules ────────────────────────────────────────────────────────────
+async function renderAlerts() {
+  setSidebarActive('sb-alerts');
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading...</div>`;
+
+  let data = {rules:[]};
+  try { data = await apiFetch('/api/v1/alerts/rules'); } catch(e) {
+    main.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`; return;
+  }
+
+  const triggerLabel = {scan_complete:'Scan complete',critical_finding:'Critical finding',high_finding:'High finding',brute_force:'Brute force detected',all:'All events'};
+
+  main.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <span class="c-orange">⚑</span>
+        <span class="card-title">Alert Rules</span>
+        <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">${data.rules.length} rules</span>
+        <button class="btn btn-green" style="margin-left:auto;font-size:11px" onclick="showCreateAlert()">+ New rule</button>
+      </div>
+      <div class="card-body" id="alerts-list-body">
+        ${data.rules.length === 0
+          ? `<div class="empty"><div class="empty-icon">⚑</div><div class="empty-text">No alert rules yet.<br>Create one to get notified on scan events.</div></div>`
+          : `<table class="scan-table">
+              <thead><tr><th>Name</th><th>Trigger</th><th>Email</th><th>Webhook</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                ${data.rules.map(r=>`
+                  <tr>
+                    <td style="color:var(--text)">${escHtml(r.name)}</td>
+                    <td><span class="sev-badge sev-medium">${triggerLabel[r.trigger]||r.trigger}</span></td>
+                    <td style="font-family:var(--mono);font-size:10px">${r.notify_email ? escHtml(r.notify_email) : '—'}</td>
+                    <td style="font-family:var(--mono);font-size:10px;color:var(--text3)">${r.notify_webhook ? '✓ webhook' : '—'}</td>
+                    <td><span class="status-chip ${r.is_active?'s-completed':'s-pending'}">${r.is_active?'active':'paused'}</span></td>
+                    <td style="display:flex;gap:6px">
+                      <button class="btn btn-ghost" style="padding:3px 10px;font-size:10px" onclick="toggleAlert('${r.id}')">${r.is_active?'Pause':'Resume'}</button>
+                      <button class="btn btn-ghost" style="padding:3px 10px;font-size:10px;color:var(--red)" onclick="deleteAlert('${r.id}','${escHtml(r.name)}')">Delete</button>
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>`}
+      </div>
+    </div>
+
+    <!-- Create rule form -->
+    <div class="card" id="create-alert-card" style="display:none">
+      <div class="card-header"><span class="c-green">+</span><span class="card-title">New Alert Rule</span></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-group">
+            <label class="form-label">Rule name</label>
+            <input class="log-source-input" id="alert-name" placeholder="e.g. Critical alert email" style="width:100%">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Trigger event</label>
+            <select class="log-source-input" id="alert-trigger" style="width:100%">
+              <option value="scan_complete">Scan complete</option>
+              <option value="critical_finding">Critical finding detected</option>
+              <option value="high_finding">High finding detected</option>
+              <option value="brute_force">Brute force detected</option>
+              <option value="all">All events</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notify email (optional)</label>
+            <input class="log-source-input" id="alert-email" type="email" placeholder="you@example.com" style="width:100%">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Webhook URL (optional)</label>
+            <input class="log-source-input" id="alert-webhook" placeholder="https://hooks.slack.com/..." style="width:100%">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:14px">At least one of email or webhook is required.</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="createAlert()">Create rule</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('create-alert-card').style.display='none'">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function showCreateAlert() {
+  const card = document.getElementById('create-alert-card');
+  if (card) { card.style.display=''; card.scrollIntoView({behavior:'smooth'}); }
+}
+
+async function createAlert() {
+  const name    = document.getElementById('alert-name').value.trim();
+  const trigger = document.getElementById('alert-trigger').value;
+  const email   = document.getElementById('alert-email').value.trim();
+  const webhook = document.getElementById('alert-webhook').value.trim();
+  if (!name)            { toast('Enter a rule name', 'error'); return; }
+  if (!email && !webhook) { toast('Enter an email or webhook URL', 'error'); return; }
+  try {
+    await apiFetch('/api/v1/alerts/rules', {
+      method:'POST',
+      body: JSON.stringify({name, trigger, notify_email:email||null, notify_webhook:webhook||null})
+    });
+    toast('Alert rule created ✓');
+    renderAlerts();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function toggleAlert(id) {
+  try {
+    const r = await apiFetch(`/api/v1/alerts/rules/${id}/toggle`, {method:'PATCH'});
+    toast(`Rule ${r.is_active ? 'enabled' : 'paused'} ✓`);
+    renderAlerts();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function deleteAlert(id, name) {
+  if (!confirm(`Delete alert rule "${name}"?`)) return;
+  try {
+    await apiFetch(`/api/v1/alerts/rules/${id}`, {method:'DELETE'});
+    toast(`Rule "${name}" deleted`);
+    renderAlerts();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+// ── Admin Panel ────────────────────────────────────────────────────────────
+async function renderAdmin() {
+  setSidebarActive('sb-admin');
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading admin data...</div>`;
+
+  let users={users:[],count:0}, events={events:[],count:0}, usage={usage:[],count:0};
+  try {
+    [users, events, usage] = await Promise.all([
+      apiFetch('/api/v1/admin/users'),
+      apiFetch('/api/v1/admin/security-events?limit=20'),
+      apiFetch('/api/v1/admin/usage?limit=20'),
+    ]);
+  } catch(e) {
+    main.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`; return;
+  }
+
+  const adminTabs = ['users','events','usage'];
+  let activeTab = 'users';
+
+  // Fetch analytics data too
+  let analytics = {summary:{},feature_usage:{},top_users:[],security_events_by_type:{},daily_activity:{},endpoint_performance:[]};
+  try { analytics = await apiFetch('/api/v1/admin/analytics?days=7'); } catch {}
+
+  main.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-val c-accent">${users.count}</div><div class="stat-lbl">Total users</div></div>
+      <div class="stat-card"><div class="stat-val c-orange">${analytics.summary.total_security_events||events.count}</div><div class="stat-lbl">Security events (7d)</div></div>
+      <div class="stat-card"><div class="stat-val c-green">${analytics.summary.total_api_requests||usage.count}</div><div class="stat-lbl">API requests (7d)</div></div>
+      <div class="stat-card"><div class="stat-val c-red">${analytics.summary.error_rate_pct||0}%</div><div class="stat-lbl">Error rate (7d)</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="c-accent">⊞</span><span class="card-title">Admin Panel</span></div>
+      <div class="card-body">
+        <div class="tabs">
+          <div class="tab active" id="atab-analytics" onclick="renderAdminTab('analytics')">Analytics</div>
+          <div class="tab" id="atab-users" onclick="renderAdminTab('users')">Users (${users.count})</div>
+          <div class="tab" id="atab-events" onclick="renderAdminTab('events')">Security Events (${events.count})</div>
+          <div class="tab" id="atab-usage" onclick="renderAdminTab('usage')">Usage Log</div>
+        </div>
+        <div id="admin-tab-body"></div>
+      </div>
+    </div>`;
+
+  function miniBar(label, val, max, color) {
+    const pct = max > 0 ? Math.round(val/max*100) : 0;
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <span style="font-family:var(--mono);font-size:10px;color:var(--text2);min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${label}">${label}</span>
+      <div style="flex:1;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;transition:width .4s"></div>
+      </div>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--text2);min-width:28px;text-align:right">${val}</span>
+    </div>`;
+  }
+
+  adminTabs.push('analytics');
+
+  function renderAdminTab(tab) {
+    activeTab = tab;
+    adminTabs.forEach(t => {
+      const el = document.getElementById(`atab-${t}`);
+      if (el) el.classList.toggle('active', t===tab);
+    });
+    const body = document.getElementById('admin-tab-body');
+    if (!body) return;
+
+    if (tab === 'analytics') {
+      const feats = analytics.feature_usage || {};
+      const maxFeat = Math.max(...Object.values(feats), 1);
+      const daily = analytics.daily_activity || {};
+      const maxDay = Math.max(...Object.values(daily), 1);
+      const secTypes = analytics.security_events_by_type || {};
+      const maxSec = Math.max(...Object.values(secTypes), 1);
+      const topUsers = analytics.top_users || [];
+      const maxUser = topUsers.length ? topUsers[0].event_count : 1;
+      const perf = analytics.endpoint_performance || [];
+
+      body.innerHTML = `
+        <div class="two-col" style="margin-bottom:16px">
+          <div>
+            <div class="section-label" style="margin-bottom:10px">Feature usage (7 days)</div>
+            ${Object.keys(feats).length === 0
+              ? `<div style="color:var(--text3);font-size:11px;font-family:var(--mono)">No activity yet</div>`
+              : Object.entries(feats).sort((a,b)=>b[1]-a[1]).map(([f,c])=>miniBar(f,c,maxFeat,'var(--accent)')).join('')}
+          </div>
+          <div>
+            <div class="section-label" style="margin-bottom:10px">Daily activity trend</div>
+            ${Object.keys(daily).length === 0
+              ? `<div style="color:var(--text3);font-size:11px;font-family:var(--mono)">No data</div>`
+              : Object.entries(daily).map(([d,c])=>miniBar(d,c,maxDay,'var(--green)')).join('')}
+          </div>
+        </div>
+        <div class="two-col" style="margin-bottom:16px">
+          <div>
+            <div class="section-label" style="margin-bottom:10px">Top users by activity</div>
+            ${topUsers.length === 0
+              ? `<div style="color:var(--text3);font-size:11px;font-family:var(--mono)">No data</div>`
+              : topUsers.map(u=>miniBar(u.username||u.user_id,u.event_count,maxUser,'var(--blue)')).join('')}
+          </div>
+          <div>
+            <div class="section-label" style="margin-bottom:10px">Security events by type</div>
+            ${Object.keys(secTypes).length === 0
+              ? `<div style="color:var(--text3);font-size:11px;font-family:var(--mono)">No events</div>`
+              : Object.entries(secTypes).sort((a,b)=>b[1]-a[1]).map(([t,c])=>miniBar(t,c,maxSec,'var(--red)')).join('')}
+          </div>
+        </div>
+        ${perf.length > 0 ? `
+        <div class="section-label" style="margin-bottom:10px">Endpoint performance</div>
+        <table class="scan-table">
+          <thead><tr><th>Endpoint</th><th>Requests</th><th>Avg ms</th><th>Error rate</th></tr></thead>
+          <tbody>
+            ${perf.map(p=>`
+              <tr>
+                <td style="font-family:var(--mono);font-size:10px;color:var(--text)">${escHtml(p.endpoint)}</td>
+                <td>${p.count}</td>
+                <td style="color:${p.avg_ms>1000?'var(--red)':p.avg_ms>300?'var(--orange)':'var(--green)'}">${p.avg_ms}ms</td>
+                <td style="color:${p.error_rate_pct>10?'var(--red)':p.error_rate_pct>0?'var(--orange)':'var(--green)'}">${p.error_rate_pct}%</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>` : ''}`;
+
+    } else if (tab === 'users') {
+      const svcColor = {
+        log_analysis:'var(--accent)', attack_chain:'var(--red)', pdf_download:'var(--blue)',
+        vuln_scan:'var(--orange)', schedule_created:'var(--green)', key_created:'var(--text2)',
+        key_rotated:'var(--text2)', key_revoked:'var(--text3)', alert_created:'var(--blue)',
+        login:'var(--text3)', register:'var(--text3)',
+      };
+      const svcLabel = {
+        log_analysis:'Log Analyser', attack_chain:'Attack Chain', pdf_download:'PDF Report',
+        vuln_scan:'Vuln Scan', schedule_created:'Schedules', key_created:'Key Create',
+        key_rotated:'Key Rotate', key_revoked:'Key Revoke', alert_created:'Alert Rule',
+        login:'Login', register:'Register',
+      };
+      body.innerHTML = users.users.length === 0
+        ? `<div class="empty"><div class="empty-icon">⊘</div><div class="empty-text">No users yet</div></div>`
+        : `<table class="scan-table">
+            <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Keys</th><th>Requests</th><th>Services used</th><th>Last seen</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              ${users.users.map(u=>{
+                const svc = u.service_usage || {};
+                const svcBadges = Object.entries(svc)
+                  .filter(([k])=>!['login','register'].includes(k))
+                  .sort((a,b)=>b[1]-a[1])
+                  .map(([k,v])=>`<span title="${svcLabel[k]||k}: ${v}x" style="display:inline-block;margin:1px 2px;padding:2px 6px;border-radius:3px;font-size:9px;font-family:var(--mono);background:var(--bg3);color:${svcColor[k]||'var(--text2)'};">${svcLabel[k]||k}<span style="opacity:.6;margin-left:3px">${v}</span></span>`).join('');
+                return `<tr>
+                  <td style="color:var(--text);font-family:var(--mono)">${escHtml(u.username)}</td>
+                  <td style="font-size:10px">${escHtml(u.email)}</td>
+                  <td>${u.is_admin?`<span class="sev-badge sev-critical">ADMIN</span>`:`<span class="sev-badge sev-low">user</span>`}</td>
+                  <td class="c-accent">${u.active_keys}</td>
+                  <td>${u.total_requests}</td>
+                  <td style="max-width:220px">${svcBadges||'<span style="color:var(--text3);font-size:10px">none yet</span>'}</td>
+                  <td style="color:var(--text3);font-size:10px">${formatDate(u.last_seen_at||u.last_login_at)}</td>
+                  <td><span class="status-chip ${u.is_active?'s-completed':'s-failed'}">${u.is_active?'active':'disabled'}</span></td>
+                  <td style="display:flex;gap:4px;align-items:center">
+                    <button class="btn btn-ghost" style="padding:3px 8px;font-size:10px"
+                      onclick="adminViewUserActivity('${u.id}','${escHtml(u.username)}')">Activity</button>
+                    <button class="btn btn-ghost" style="padding:3px 8px;font-size:10px;${!u.is_admin?'color:var(--red)':''}"
+                      onclick="adminToggleUser('${u.id}','${escHtml(u.username)}',${u.is_active})">${u.is_active?'Disable':'Enable'}</button>
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>`;
+
+    } else if (tab === 'events') {
+      const sevColor = {low:'var(--text3)', medium:'var(--blue)', high:'var(--orange)', critical:'var(--red)'};
+      body.innerHTML = events.events.length === 0
+        ? `<div class="empty"><div class="empty-icon">◎</div><div class="empty-text">No security events recorded</div></div>`
+        : `<table class="scan-table">
+            <thead><tr><th>Event type</th><th>IP</th><th>Severity</th><th>User ID</th><th>Details</th><th>Time</th></tr></thead>
+            <tbody>
+              ${events.events.map(e=>`
+                <tr>
+                  <td style="font-family:var(--mono);color:var(--text)">${e.event_type}</td>
+                  <td style="font-family:var(--mono);color:var(--orange)">${e.ip_address}</td>
+                  <td><span style="color:${sevColor[e.severity]||'var(--text2)'};font-family:var(--mono);font-size:10px">${e.severity.toUpperCase()}</span></td>
+                  <td style="font-family:var(--mono);font-size:10px;color:var(--text3)">${e.user_id?e.user_id.substring(0,8)+'…':'—'}</td>
+                  <td style="font-size:10px;color:var(--text3)">${e.details?JSON.stringify(e.details).substring(0,60):'—'}</td>
+                  <td style="color:var(--text3);font-size:10px">${formatDate(e.created_at)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`;
+
+    } else if (tab === 'usage') {
+      body.innerHTML = usage.usage.length === 0
+        ? `<div class="empty"><div class="empty-icon">◈</div><div class="empty-text">No usage logs yet</div></div>`
+        : `<table class="scan-table">
+            <thead><tr><th>Endpoint</th><th>Method</th><th>IP</th><th>Status</th><th>Duration</th><th>Time</th></tr></thead>
+            <tbody>
+              ${usage.usage.map(r=>`
+                <tr>
+                  <td style="font-family:var(--mono);font-size:10px;color:var(--text)">${escHtml(r.endpoint)}</td>
+                  <td style="font-family:var(--mono);font-size:10px;color:var(--text3)">${r.method}</td>
+                  <td style="font-family:var(--mono);font-size:10px;color:var(--text2)">${r.ip_address}</td>
+                  <td><span class="status-chip ${r.status_code<400?'s-completed':'s-failed'}">${r.status_code}</span></td>
+                  <td style="color:var(--text3)">${r.duration_ms}ms</td>
+                  <td style="color:var(--text3);font-size:10px">${formatDate(r.timestamp)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`;
+    }
+  }
+
+  renderAdminTab('analytics');
+
+  window.renderAdminTab = renderAdminTab;
+}
+
+async function adminToggleUser(id, username, isActive) {
+  const action = isActive ? 'disable' : 'enable';
+  if (!confirm(`${action.charAt(0).toUpperCase()+action.slice(1)} user "${username}"?`)) return;
+  try {
+    const r = await apiFetch(`/api/v1/admin/users/${id}/toggle`, {method:'PATCH'});
+    toast(`User "${username}" ${r.is_active ? 'enabled' : 'disabled'} ✓`);
+    renderAdmin();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function adminViewUserActivity(userId, username) {
+  const overlay = document.getElementById('modal-overlay');
+  const modal   = document.getElementById('modal-box');
+  if (!overlay || !modal) return;
+  overlay.style.display = 'flex';
+  modal.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px"><span class="spinner"></span> Loading activity for ${escHtml(username)}…</div>`;
+
+  try {
+    const data = await apiFetch(`/api/v1/admin/users/${userId}/activity?limit=100`);
+    const svc = data.service_usage || {};
+    const svcOrder = Object.entries(svc).sort((a,b)=>b[1]-a[1]);
+    const evtTypeColor = {
+      log_analysis:'var(--accent)', attack_chain:'var(--red)', pdf_download:'var(--blue)',
+      vuln_scan:'var(--orange)', schedule_created:'var(--green)', key_created:'var(--text2)',
+      key_rotated:'var(--text2)', key_revoked:'var(--text3)', alert_created:'var(--blue)',
+      login:'var(--text3)', register:'var(--text3)',
+    };
+    modal.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="modal-title">Activity — ${escHtml(username)}</div>
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-overlay').style.display='none'">✕ Close</button>
+      </div>
+      ${svcOrder.length > 0 ? `
+      <div style="margin-bottom:16px">
+        <div class="section-label" style="margin-bottom:8px">Services used</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${svcOrder.map(([k,v])=>`
+            <div style="padding:6px 12px;background:var(--bg3);border-radius:6px;font-family:var(--mono);font-size:11px">
+              <span style="color:${evtTypeColor[k]||'var(--text2)'}">${k.replace(/_/g,' ')}</span>
+              <span style="color:var(--accent);margin-left:6px;font-size:13px">${v}×</span>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
+      <div class="section-label" style="margin-bottom:8px">Recent activity (${data.events.length} events)</div>
+      <div style="max-height:380px;overflow-y:auto">
+        <table class="scan-table" style="font-size:10px">
+          <thead><tr><th>Event</th><th>Details</th><th>IP</th><th>Time</th></tr></thead>
+          <tbody>
+            ${data.events.length === 0
+              ? `<tr><td colspan="4" style="color:var(--text3);text-align:center">No activity recorded yet</td></tr>`
+              : data.events.map(e=>`
+                <tr>
+                  <td style="font-family:var(--mono);color:${evtTypeColor[e.event_type]||'var(--text2)'};white-space:nowrap">${e.event_type.replace(/_/g,' ')}</td>
+                  <td style="color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.details?JSON.stringify(e.details):''}">${e.details?JSON.stringify(e.details).substring(0,80):'—'}</td>
+                  <td style="font-family:var(--mono);color:var(--text3)">${e.ip_address}</td>
+                  <td style="color:var(--text3);white-space:nowrap">${formatDate(e.created_at)}</td>
+                </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    modal.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>
+      <button class="btn btn-ghost" style="margin-top:12px" onclick="document.getElementById('modal-overlay').style.display='none'">Close</button>`;
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+updateUserDisplay();
+checkHealth();
+setInterval(checkHealth, 30000);
+
+if (!getToken()) {
+  showAuthPage();
+} else {
+  renderDashboard();
+}
+</script>
+</body>
+</html>
+
+
+
+

@@ -1,6 +1,12 @@
 # Secrets — NEVER commit
 .env
 *.env
+sentinel.ps1
+
+# Deploy artifacts
+*.zip
+*.db
+*.bak
 
 # Python
 __pycache__/

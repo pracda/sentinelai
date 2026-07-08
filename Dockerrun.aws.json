@@ -1,0 +1,1 @@
+{"Logging":"/var/log/app","Ports":[{"HostPort":80,"ContainerPort":8000}],"AWSEBDockerrunVersion":"1","Image":{"Name":"084828588268.dkr.ecr.us-east-1.amazonaws.com/sentinelai:v30","Update":"true"}}

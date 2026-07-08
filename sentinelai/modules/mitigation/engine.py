@@ -9,6 +9,7 @@ Takes scan and analysis results and uses LLMs to generate:
   5. PDF and Markdown report export
 """
 import json
+from typing import Optional
 from datetime import datetime
 from pathlib import Path
 import structlog

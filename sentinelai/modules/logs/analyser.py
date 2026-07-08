@@ -311,7 +311,7 @@ Specific firewall rules, account locks, or system isolations recommended."""
         return await self.llm.complete(
             prompt=prompt,
             system=self.llm.log_analyst_system(),
-            max_tokens=4000
+            max_tokens=8000
         )
 
     # ── Full log analysis workflow ─────────────────────────────────────────

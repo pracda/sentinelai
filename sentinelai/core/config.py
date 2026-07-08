@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     # Default models
     anthropic_model: str = "claude-haiku-4-5"
     openai_model: str = "gpt-4o-mini"
-    llm_timeout_seconds: int = 60
-    llm_max_tokens: int = 4096
+    llm_timeout_seconds: int = 300
+    llm_max_tokens: int = 8000
 
     # ── Threat intelligence APIs ───────────────────────────────────────────
     abuseipdb_api_key: str = Field(default="", env="ABUSEIPDB_API_KEY")
@@ -25,15 +25,48 @@ class Settings(BaseSettings):
 
     # ── App config ─────────────────────────────────────────────────────────
     app_name: str = "SentinelAI"
-    app_version: str = "1.0.0"
-    environment: str = Field(default="development", validation_alias="sentinelai_env")
-    log_level: str = Field(default="INFO", validation_alias="sentinelai_log_level")
-    max_scan_threads: int = Field(default=4, validation_alias="sentinelai_max_scan_threads")
+    app_version: str = "2.0.0"
+    environment: str = Field(default="development", env="SENTINELAI_ENV")
+    log_level: str = Field(default="INFO")
+    max_scan_threads: int = Field(default=4)
+
+    # ── API Keys & Rate limiting ───────────────────────────────────────────
+    sentinelai_api_keys: str = Field(
+        default="sentinel-dev-key-change-in-production",
+        env="SENTINELAI_API_KEYS"
+    )
+    rate_limit_per_minute: int = Field(default=120)
+
+    @property
+    def api_keys(self) -> list:
+        return [k.strip() for k in self.sentinelai_api_keys.split(',') if k.strip()]
+
     # ── Database ───────────────────────────────────────────────────────────
     database_url: str = Field(
         default="sqlite+aiosqlite:///./sentinelai.db",
         env="DATABASE_URL"
     )
+
+    # ── JWT Auth ───────────────────────────────────────────────────────────
+    jwt_secret_key: str = Field(
+        default="change-me-in-production-use-a-long-random-string",
+        env="JWT_SECRET_KEY"
+    )
+    jwt_expire_hours: int = Field(default=24, env="JWT_EXPIRE_HOURS")
+
+    # ── Admin bootstrap ────────────────────────────────────────────────────
+    # Comma-separated emails that always receive/keep admin on registration or startup.
+    admin_emails: str = Field(default="", env="ADMIN_EMAILS")
+
+    # ── Notifications ─────────────────────────────────────────────────────
+    slack_webhook_url: str = Field(default="", env="SLACK_WEBHOOK_URL")
+    alert_min_severity: str = Field(default="critical", env="ALERT_MIN_SEVERITY")  # critical | high | any
+    alert_email_to: str = Field(default="", env="ALERT_EMAIL_TO")
+    smtp_host: str = Field(default="", env="SMTP_HOST")
+    smtp_port: int = Field(default=587, env="SMTP_PORT")
+    smtp_user: str = Field(default="", env="SMTP_USER")
+    smtp_password: str = Field(default="", env="SMTP_PASSWORD")
+    smtp_from: str = Field(default="", env="SMTP_FROM")
 
     # ── Scanning limits (safety) ───────────────────────────────────────────
     max_ports_per_scan: int = 1000

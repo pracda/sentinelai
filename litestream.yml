@@ -1,0 +1,7 @@
+dbs:
+  - path: /data/sentinelai.db
+    replicas:
+      - type: s3
+        bucket: elasticbeanstalk-sentinelai-db-084828588268
+        path: sentinelai.db
+        region: us-east-1
