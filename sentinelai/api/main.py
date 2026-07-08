@@ -1829,7 +1829,7 @@ def _findings_to_dict(f: Finding) -> dict:
     }
 
 
-@app.get("/api/v1/scans/diff", tags=["Scans"])
+@app.get("/api/v1/scan-compare", tags=["Scans"])
 async def scan_diff(
     a: str,
     b: str,

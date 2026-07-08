@@ -2246,6 +2246,9 @@ async function renderPortfolio() {
         <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">sorted by risk (worst first)</span>
         <button class="btn btn-ghost" style="margin-left:auto;font-size:11px" onclick="renderPortfolio()">↻ Refresh</button>
       </div>
+      <div style="padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3)">
+        💡 To update finding statuses: click <strong style="color:var(--text2)">View & Update →</strong> on any target, then use the status dropdown on each finding (open → acknowledged → in progress → fixed).
+      </div>
       <div class="card-body" style="padding:0">
         ${data.targets.length===0
           ? `<div class="empty" style="padding:40px"><div class="empty-icon">◉</div><div class="empty-text">No completed scans yet.</div></div>`
@@ -2271,7 +2274,9 @@ async function renderPortfolio() {
                     <td>${t.kev_count>0?`<span style="background:#dc2626;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;font-family:var(--mono)">${t.kev_count} KEV</span>`:'—'}</td>
                     <td style="color:var(--text3)">${t.scan_count}</td>
                     <td style="color:var(--text3)">${formatDate(t.last_scan_at)}</td>
-                    <td><button class="btn btn-ghost" style="padding:3px 10px;font-size:10px" onclick="viewScan('${t.last_scan_id}')">View</button></td>
+                    <td>
+                      <button class="btn btn-primary" style="padding:3px 10px;font-size:10px;white-space:nowrap" onclick="viewScan('${t.last_scan_id}')">View & Update →</button>
+                    </td>
                   </tr>`).join('')}
               </tbody>
             </table>`}
@@ -2415,7 +2420,7 @@ async function runScanDiff() {
   const out = document.getElementById('diff-result');
   out.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Generating delta report...</div>`;
   try {
-    const d = await apiFetch(`/api/v1/scans/diff?a=${a}&b=${b}`);
+    const d = await apiFetch(`/api/v1/scan-compare?a=${a}&b=${b}`);
     const delta = d.delta;
     const sevColor = {'critical':'var(--red)','high':'var(--orange)','medium':'#eab308','low':'var(--text3)','info':'var(--text3)'};
     out.innerHTML = `
