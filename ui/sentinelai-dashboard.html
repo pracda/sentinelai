@@ -174,6 +174,8 @@
       <button class="nav-btn" id="nb-scans" onclick="showPage('scans')">Scan History</button>
       <button class="nav-btn" id="nb-schedules" onclick="showPage('schedules')">Schedules</button>
       <button class="nav-btn" id="nb-mitre" onclick="showPage('mitre')">MITRE</button>
+      <button class="nav-btn" id="nb-portfolio" onclick="showPage('portfolio')">Portfolio</button>
+      <button class="nav-btn" id="nb-remediation" onclick="showPage('remediation')">Remediation</button>
     </nav>
     <div class="status-bar">
       <div class="status-dot" id="status-dot"></div>
@@ -212,6 +214,14 @@
       </div>
       <div class="sb-item" id="sb-mitre" onclick="showPage('mitre')">
         <span>◧</span> MITRE Heatmap
+      </div>
+      <div class="sb-item" id="sb-portfolio" onclick="showPage('portfolio')">
+        <span>◉</span> Portfolio
+        <span class="sb-badge badge-red" id="sb-kev-count" style="display:none"></span>
+      </div>
+      <div class="sb-item" id="sb-remediation" onclick="showPage('remediation')">
+        <span>✓</span> Remediation
+        <span class="sb-badge badge-orange" id="sb-open-count" style="display:none"></span>
       </div>
       <div class="sb-section" id="sb-user-section">User</div>
       <div class="sb-item" id="sb-keys" onclick="showPage('keys')"><span>⚿</span> API Keys</div>
@@ -452,6 +462,7 @@ function showPage(page) {
     dashboard:renderDashboard, analyse:renderAnalyse, scans:renderScans,
     schedules:renderSchedules, correlate:renderCorrelate, mitre:renderMitre,
     vuln:renderVuln, keys:renderKeys, alerts:renderAlerts, admin:renderAdmin,
+    portfolio:renderPortfolio, remediation:renderRemediation,
   };
   (pages[page]||renderDashboard)();
 }
@@ -995,6 +1006,7 @@ async function renderScans() {
         <span class="card-title">Scan history</span>
         <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">${data.count} total</span>
         <button class="btn btn-ghost" style="margin-left:auto;font-size:11px;" onclick="renderScans()">↻ Refresh</button>
+        <button class="btn btn-ghost" style="font-size:11px;" onclick="showComparePicker()" title="Compare two scans">⇄ Compare</button>
         <button class="btn btn-green" style="font-size:11px;" onclick="showPage('analyse')">+ New analysis</button>
       </div>
       <div class="card-body" style="padding:0">
@@ -1065,13 +1077,24 @@ async function viewScan(scanId) {
         <div class="card-body">
           <div class="threat-list">
             ${scan.findings.map(f=>`
-              <div class="threat-item threat-${f.severity}">
+              <div class="threat-item threat-${f.severity}" id="fi-${f.id}">
                 <div style="flex:1">
-                  <div class="threat-text">${f.title}</div>
+                  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                    <span class="threat-text">${f.title}</span>
+                    ${f.is_kev?`<span style="background:#dc2626;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;font-family:var(--mono);font-weight:700">CISA KEV</span>`:''}
+                  </div>
                   ${f.mitre_attack?`<div class="threat-ttp">${f.mitre_attack}</div>`:''}
                   ${f.cve_id?`<div class="threat-ttp">CVE: ${f.cve_id} · CVSS: ${f.cvss_score||'N/A'}</div>`:''}
                 </div>
-                <span class="sev-badge sev-${f.severity}">${f.severity.toUpperCase()}</span>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+                  <span class="sev-badge sev-${f.severity}">${f.severity.toUpperCase()}</span>
+                  <select onchange="updateRemStatus('${f.id}',this.value)"
+                    style="font-size:10px;background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:4px;padding:2px 4px;cursor:pointer">
+                    ${['open','acknowledged','in_progress','fixed','false_positive'].map(s=>
+                      `<option value="${s}"${(f.rem_status||'open')===s?' selected':''}>${s.replace('_',' ')}</option>`
+                    ).join('')}
+                  </select>
+                </div>
               </div>`).join('')}
           </div>
         </div>
@@ -1085,6 +1108,18 @@ async function viewScan(scanId) {
       </div>`:''}`;
   } catch(e) {
     main.innerHTML=`<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`;
+  }
+}
+
+async function updateRemStatus(findingId, status) {
+  try {
+    await apiFetch(`/api/v1/findings/${findingId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({status})
+    });
+    toast(`Status → ${status.replace('_',' ')} ✓`);
+  } catch(e) {
+    toast('Failed to update status: ' + e.message, 'error');
   }
 }
 
@@ -2177,6 +2212,251 @@ async function adminViewUserActivity(userId, username) {
   } catch(e) {
     modal.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>
       <button class="btn btn-ghost" style="margin-top:12px" onclick="document.getElementById('modal-overlay').style.display='none'">Close</button>`;
+  }
+}
+
+// ── Portfolio view ─────────────────────────────────────────────────────────
+async function renderPortfolio() {
+  setSidebarActive('sb-portfolio');
+  document.getElementById('nb-portfolio').classList.add('active');
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading portfolio...</div>`;
+
+  let data = {targets:[], total_targets:0, kev_total:0, critical_targets:0};
+  try { data = await apiFetch('/api/v1/portfolio'); } catch(e) {
+    main.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`; return;
+  }
+
+  const sb = document.getElementById('sb-kev-count');
+  if (sb) { sb.textContent = data.kev_total||''; sb.style.display = data.kev_total?'':'none'; }
+
+  const riskColor = s => s>=80?'var(--green)':s>=50?'var(--orange)':'var(--red)';
+  const sevColor  = s => ({'critical':'var(--red)','high':'var(--orange)','medium':'#eab308','low':'var(--text3)','none':'var(--text3)'})[s]||'var(--text2)';
+
+  main.innerHTML = `
+    <div class="stat-grid" style="margin-bottom:16px">
+      <div class="stat-card"><div class="stat-val c-accent">${data.total_targets}</div><div class="stat-lbl">Monitored targets</div></div>
+      <div class="stat-card"><div class="stat-val c-red">${data.critical_targets}</div><div class="stat-lbl">Critical targets</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:var(--red)">${data.kev_total}</div><div class="stat-lbl">Open KEV findings</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="c-accent">◉</span>
+        <span class="card-title">Target security posture</span>
+        <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">sorted by risk (worst first)</span>
+        <button class="btn btn-ghost" style="margin-left:auto;font-size:11px" onclick="renderPortfolio()">↻ Refresh</button>
+      </div>
+      <div class="card-body" style="padding:0">
+        ${data.targets.length===0
+          ? `<div class="empty" style="padding:40px"><div class="empty-icon">◉</div><div class="empty-text">No completed scans yet.</div></div>`
+          : `<table class="scan-table">
+              <thead><tr>
+                <th>Target</th><th>Risk score</th><th>Worst severity</th>
+                <th>Open findings</th><th>KEV</th><th>Scans</th><th>Last scan</th><th></th>
+              </tr></thead>
+              <tbody>
+                ${data.targets.map(t=>`
+                  <tr>
+                    <td style="font-family:var(--mono);font-size:11px;color:var(--text)">${t.target}</td>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <div style="width:60px;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+                          <div style="width:${t.risk_score}%;height:100%;background:${riskColor(t.risk_score)};border-radius:3px"></div>
+                        </div>
+                        <span style="font-family:var(--mono);font-size:11px;color:${riskColor(t.risk_score)}">${t.risk_score}</span>
+                      </div>
+                    </td>
+                    <td><span style="color:${sevColor(t.worst_severity)};font-family:var(--mono);font-size:11px;text-transform:uppercase">${t.worst_severity}</span></td>
+                    <td class="c-orange">${t.open_findings}</td>
+                    <td>${t.kev_count>0?`<span style="background:#dc2626;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;font-family:var(--mono)">${t.kev_count} KEV</span>`:'—'}</td>
+                    <td style="color:var(--text3)">${t.scan_count}</td>
+                    <td style="color:var(--text3)">${formatDate(t.last_scan_at)}</td>
+                    <td><button class="btn btn-ghost" style="padding:3px 10px;font-size:10px" onclick="viewScan('${t.last_scan_id}')">View</button></td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>`}
+      </div>
+    </div>`;
+}
+
+// ── Remediation tracker ────────────────────────────────────────────────────
+async function renderRemediation() {
+  setSidebarActive('sb-remediation');
+  document.getElementById('nb-remediation').classList.add('active');
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Loading remediation summary...</div>`;
+
+  let data = {total_findings:0, remediation_rate:0, by_status:{}, by_severity:{}, kev_open:0};
+  try { data = await apiFetch('/api/v1/remediation/summary'); } catch(e) {
+    main.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`; return;
+  }
+
+  const sb = document.getElementById('sb-open-count');
+  const openCount = (data.by_status||{}).open || 0;
+  if (sb) { sb.textContent = openCount||''; sb.style.display = openCount?'':'none'; }
+
+  const st = data.by_status || {};
+  const bySev = data.by_severity || {};
+  const sevOrder = ['critical','high','medium','low','info'];
+  const statusColor = {'open':'var(--red)','acknowledged':'var(--orange)','in_progress':'#eab308','fixed':'var(--green)','false_positive':'var(--text3)'};
+
+  main.innerHTML = `
+    <div class="stat-grid" style="margin-bottom:16px">
+      <div class="stat-card">
+        <div class="stat-val" style="color:var(--green)">${data.remediation_rate}%</div>
+        <div class="stat-lbl">Remediation rate</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val c-red">${data.total_findings}</div>
+        <div class="stat-lbl">Total findings</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val c-orange">${st.open||0}</div>
+        <div class="stat-lbl">Open</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" style="color:var(--green)">${st.fixed||0}</div>
+        <div class="stat-lbl">Fixed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" style="color:var(--red)">${data.kev_open}</div>
+        <div class="stat-lbl">Open KEV findings</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="card">
+        <div class="card-header"><span class="c-accent">◑</span><span class="card-title">By status</span></div>
+        <div class="card-body">
+          ${Object.entries(st).map(([s,n])=>`
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <span style="width:110px;font-family:var(--mono);font-size:11px;color:${statusColor[s]||'var(--text2)'}">${s.replace('_',' ')}</span>
+              <div style="flex:1;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">
+                <div style="width:${data.total_findings?Math.round(n/data.total_findings*100):0}%;height:100%;background:${statusColor[s]||'var(--text2)'};border-radius:4px"></div>
+              </div>
+              <span style="font-family:var(--mono);font-size:11px;color:var(--text2);width:24px;text-align:right">${n}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="c-red">◉</span><span class="card-title">By severity</span></div>
+        <div class="card-body">
+          ${sevOrder.filter(s=>bySev[s]).map(s=>{
+            const d=bySev[s]||{total:0,fixed:0,open:0};
+            const pct=d.total?Math.round(d.fixed/d.total*100):0;
+            const color={'critical':'var(--red)','high':'var(--orange)','medium':'#eab308','low':'var(--text3)','info':'var(--text3)'}[s];
+            return `
+            <div style="margin-bottom:10px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span style="font-family:var(--mono);font-size:11px;color:${color};text-transform:uppercase">${s}</span>
+                <span style="font-family:var(--mono);font-size:11px;color:var(--text3)">${d.fixed}/${d.total} fixed (${pct}%)</span>
+              </div>
+              <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+                <div style="width:${pct}%;height:100%;background:var(--green);border-radius:3px"></div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+
+    ${data.kev_open>0?`
+    <div class="card" style="border:1px solid var(--red);margin-top:12px">
+      <div class="card-header"><span style="color:var(--red)">⚠</span><span class="card-title" style="color:var(--red)">CISA KEV Alert — ${data.kev_open} actively exploited vulnerabilities remain open</span></div>
+      <div class="card-body">
+        <p style="font-size:12px;color:var(--text2);margin:0">
+          These findings are in CISA's Known Exploited Vulnerabilities catalog — they are being actively exploited in the wild.
+          Remediate them immediately. Open Scan History, find the relevant scan, and update each KEV-flagged finding's status.
+        </p>
+      </div>
+    </div>`:''}`;
+}
+
+// ── Scan Compare / Diff ────────────────────────────────────────────────────
+async function showComparePicker() {
+  let scans = [];
+  try { const d = await apiFetch('/api/v1/scans?limit=50'); scans = d.scans.filter(s=>s.status==='completed'); } catch{}
+
+  const overlay = document.getElementById('modal-overlay');
+  const box = document.getElementById('modal-box');
+  box.innerHTML = `
+    <div class="card-header" style="margin-bottom:12px">
+      <span class="c-accent">⇄</span>
+      <span class="card-title">Compare two scans</span>
+      <button class="btn btn-ghost" style="margin-left:auto;padding:3px 10px;font-size:11px" onclick="document.getElementById('modal-overlay').style.display='none'">✕</button>
+    </div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Select an older scan (A) and a newer scan (B) to generate a delta report.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="font-size:11px;color:var(--text3);font-family:var(--mono);display:block;margin-bottom:4px">Scan A (older baseline)</label>
+        <select id="cmp-a" style="width:100%;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;font-size:11px">
+          <option value="">— select —</option>
+          ${scans.map(s=>`<option value="${s.id}">[${s.scan_type}] ${s.target} · ${formatDate(s.created_at)}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);font-family:var(--mono);display:block;margin-bottom:4px">Scan B (newer)</label>
+        <select id="cmp-b" style="width:100%;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;font-size:11px">
+          <option value="">— select —</option>
+          ${scans.map(s=>`<option value="${s.id}">[${s.scan_type}] ${s.target} · ${formatDate(s.created_at)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="runScanDiff()">Generate delta report →</button>
+    <div id="diff-result" style="margin-top:16px"></div>`;
+  overlay.style.display = 'flex';
+}
+
+async function runScanDiff() {
+  const a = document.getElementById('cmp-a').value;
+  const b = document.getElementById('cmp-b').value;
+  if (!a || !b) { toast('Select both scans', 'error'); return; }
+  if (a === b)  { toast('Select two different scans', 'error'); return; }
+  const out = document.getElementById('diff-result');
+  out.innerHTML = `<div style="color:var(--text2);font-family:var(--mono);font-size:12px;"><span class="spinner"></span>Generating delta report...</div>`;
+  try {
+    const d = await apiFetch(`/api/v1/scans/diff?a=${a}&b=${b}`);
+    const delta = d.delta;
+    const sevColor = {'critical':'var(--red)','high':'var(--orange)','medium':'#eab308','low':'var(--text3)','info':'var(--text3)'};
+    out.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+        <div class="stat-card"><div class="stat-val c-red">${delta.new.length}</div><div class="stat-lbl">New findings</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:var(--green)">${delta.resolved.length}</div><div class="stat-lbl">Resolved</div></div>
+        <div class="stat-card"><div class="stat-val c-orange">${delta.changed_severity.length}</div><div class="stat-lbl">Severity changes</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:var(--text3)">${delta.persisted_count}</div><div class="stat-lbl">Unchanged</div></div>
+      </div>
+      ${delta.new.length>0?`
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:var(--red);font-family:var(--mono);margin-bottom:6px">▲ NEW findings</div>
+        ${delta.new.slice(0,8).map(f=>`
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span style="font-family:var(--mono);font-size:10px;color:${sevColor[f.severity]||'var(--text2)'};text-transform:uppercase;width:60px">${f.severity}</span>
+            <span style="font-size:12px;color:var(--text)">${f.title}</span>
+            ${f.is_kev?`<span style="background:#dc2626;color:#fff;font-size:9px;padding:1px 4px;border-radius:3px">KEV</span>`:''}
+          </div>`).join('')}
+      </div>`:''}
+      ${delta.resolved.length>0?`
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:var(--green);font-family:var(--mono);margin-bottom:6px">✓ RESOLVED since A</div>
+        ${delta.resolved.slice(0,6).map(f=>`
+          <div style="font-size:12px;color:var(--text3);padding:3px 0;border-bottom:1px solid var(--border)">${f.title}</div>`).join('')}
+      </div>`:''}
+      ${delta.changed_severity.length>0?`
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:var(--orange);font-family:var(--mono);margin-bottom:6px">△ SEVERITY CHANGES</div>
+        ${delta.changed_severity.map(c=>`
+          <div style="font-size:12px;color:var(--text);padding:3px 0;border-bottom:1px solid var(--border)">
+            ${c.title} — <span style="color:${sevColor[c.old_severity]}">${c.old_severity}</span> → <span style="color:${sevColor[c.new_severity]}">${c.new_severity}</span>
+          </div>`).join('')}
+      </div>`:''}
+      <div class="card" style="margin-top:8px">
+        <div class="card-header"><span class="c-green">▸</span><span class="card-title">AI delta report</span></div>
+        <div class="card-body">
+          <div class="stream-box" style="color:var(--text);max-height:400px;white-space:pre-wrap">${escHtml(d.narrative)}</div>
+        </div>
+      </div>`;
+  } catch(e) {
+    out.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`;
   }
 }
 

@@ -24,12 +24,14 @@ from sqlalchemy import select, desc, func
 import structlog
 
 import time as _time
+import re as _re
 
 from sentinelai.core.config import get_settings
 from sentinelai.core.database import (
     init_db, get_session_factory,
     Scan, Finding, Schedule, LogAnalysis, ScanStatus, ScanType,
     User, UserApiKey, UsageLog, SecurityEvent, AlertRule, ActivityEvent,
+    CodeAudit, RemediationStatus,
 )
 from sentinelai.core.security import (
     verify_api_key, rate_limit_dependency,
@@ -216,11 +218,13 @@ async def lifespan(app: FastAPI):
     await _load_db_api_keys()
     await _ensure_admin_emails()
     scheduler_task = asyncio.create_task(_scheduler_loop())
+    kev_task = asyncio.create_task(_kev_refresh_loop())
     log.info("SentinelAI started",
              version=settings.app_version,
              environment=settings.environment)
     yield
     scheduler_task.cancel()
+    kev_task.cancel()
     log.info("SentinelAI shutdown")
 
 
@@ -1025,7 +1029,6 @@ _TACTIC_ORDER = [
          dependencies=[Depends(jwt_or_api_key)])
 async def mitre_heatmap():
     """Return MITRE ATT&CK technique hit counts from all stored findings."""
-    import re as _re
     async with get_session_factory()() as session:
         rows = (await session.execute(
             select(Finding.mitre_attack, Finding.severity)
@@ -1669,7 +1672,6 @@ async def user_activity(
             .limit(min(limit, 200))
         )).scalars().all()
 
-        # Total API requests this user made
         req_count = len((await session.execute(
             select(UsageLog).where(UsageLog.user_id == current_user["sub"])
         )).scalars().all())
@@ -1695,4 +1697,306 @@ async def user_activity(
                 "created_at":  e.created_at.isoformat() if e.created_at else None,
             } for e in events
         ],
+    }
+
+
+# ── CISA KEV catalog (in-memory, refreshed daily) ─────────────────────────
+
+import httpx as _httpx
+
+_KEV_URL  = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+_kev_set: set[str] = set()        # CVE IDs currently in the catalog
+_kev_last_fetch: float = 0.0
+
+
+async def _fetch_kev() -> None:
+    """Pull the CISA KEV catalog and rebuild the in-memory set."""
+    global _kev_set, _kev_last_fetch
+    try:
+        async with _httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(_KEV_URL)
+            r.raise_for_status()
+            data = r.json()
+        _kev_set = {v["cveID"] for v in data.get("vulnerabilities", [])}
+        _kev_last_fetch = _time.time()
+        log.info("CISA KEV catalog refreshed", count=len(_kev_set))
+    except Exception as e:
+        log.warning("CISA KEV fetch failed", error=str(e))
+
+
+async def _kev_refresh_loop() -> None:
+    """Background task: refresh KEV catalog every 24 hours."""
+    await _fetch_kev()
+    while True:
+        await asyncio.sleep(86400)
+        await _fetch_kev()
+
+
+async def _mark_kev_findings(scan_id: str) -> None:
+    """After a scan completes, flag any findings whose CVE ID is in the KEV catalog."""
+    if not _kev_set:
+        return
+    async with get_session_factory()() as session:
+        findings = (await session.execute(
+            select(Finding).where(Finding.scan_id == scan_id, Finding.cve_id.isnot(None))
+        )).scalars().all()
+        updated = 0
+        for f in findings:
+            if f.cve_id and f.cve_id.upper() in _kev_set:
+                f.is_kev = True
+                updated += 1
+        if updated:
+            await session.commit()
+            log.info("KEV flags applied to findings", scan_id=scan_id, count=updated)
+
+
+# ── Remediation workflow ───────────────────────────────────────────────────
+
+class RemStatusUpdate(BaseModel):
+    status: str = Field(..., description="open | acknowledged | in_progress | fixed | false_positive")
+    notes: Optional[str] = None
+
+
+@app.patch("/api/v1/findings/{finding_id}/status", tags=["Remediation"])
+async def update_finding_status(
+    finding_id: str,
+    body: RemStatusUpdate,
+    _auth: str = Depends(jwt_or_api_key),
+):
+    """Update the remediation status of a finding."""
+    valid = {"open", "acknowledged", "in_progress", "fixed", "false_positive"}
+    if body.status not in valid:
+        raise HTTPException(status_code=400, detail=f"status must be one of {valid}")
+    async with get_session_factory()() as session:
+        finding = await session.get(Finding, finding_id)
+        if not finding:
+            raise HTTPException(status_code=404, detail="Finding not found")
+        finding.rem_status = body.status
+        if body.notes is not None:
+            finding.rem_notes = body.notes
+        if body.status == "fixed":
+            finding.rem_at = datetime.utcnow()
+        await session.commit()
+    return {"message": "Status updated", "finding_id": finding_id, "status": body.status}
+
+
+@app.get("/api/v1/remediation/summary", tags=["Remediation"])
+async def remediation_summary(_auth: str = Depends(jwt_or_api_key)):
+    """Return remediation status breakdown across all findings."""
+    async with get_session_factory()() as session:
+        findings = (await session.execute(select(Finding))).scalars().all()
+
+    counts: dict[str, int] = {
+        "open": 0, "acknowledged": 0, "in_progress": 0, "fixed": 0, "false_positive": 0
+    }
+    by_severity: dict[str, dict] = {}
+    kev_open = 0
+
+    for f in findings:
+        status = f.rem_status or "open"
+        counts[status] = counts.get(status, 0) + 1
+        sev = f.severity.value if hasattr(f.severity, "value") else str(f.severity)
+        if sev not in by_severity:
+            by_severity[sev] = {"open": 0, "fixed": 0, "total": 0}
+        by_severity[sev]["total"] += 1
+        if status == "fixed":
+            by_severity[sev]["fixed"] += 1
+        else:
+            by_severity[sev]["open"] += 1
+        if f.is_kev and status not in ("fixed", "false_positive"):
+            kev_open += 1
+
+    total = len(findings)
+    fixed = counts.get("fixed", 0)
+    return {
+        "total_findings": total,
+        "remediation_rate": round(fixed / total * 100, 1) if total else 0,
+        "by_status": counts,
+        "by_severity": by_severity,
+        "kev_open": kev_open,
+    }
+
+
+# ── Scan diff / delta report ───────────────────────────────────────────────
+
+def _findings_to_dict(f: Finding) -> dict:
+    return {
+        "id": f.id, "title": f.title,
+        "severity": f.severity.value if hasattr(f.severity, "value") else str(f.severity),
+        "cve_id": f.cve_id, "mitre_attack": f.mitre_attack,
+        "description": f.description, "remediation": f.remediation,
+        "is_kev": f.is_kev,
+    }
+
+
+@app.get("/api/v1/scans/diff", tags=["Scans"])
+async def scan_diff(
+    a: str,
+    b: str,
+    _auth: str = Depends(jwt_or_api_key),
+):
+    """Compare two scans and return a Claude-generated delta report.
+    Pass scan IDs as ?a=<id>&b=<id> (chronological order: a=older, b=newer)."""
+    async with get_session_factory()() as session:
+        scan_a = await session.get(Scan, a)
+        scan_b = await session.get(Scan, b)
+        if not scan_a or not scan_b:
+            raise HTTPException(status_code=404, detail="One or both scan IDs not found")
+
+        findings_a = (await session.execute(
+            select(Finding).where(Finding.scan_id == a)
+        )).scalars().all()
+        findings_b = (await session.execute(
+            select(Finding).where(Finding.scan_id == b)
+        )).scalars().all()
+
+    titles_a = {f.title: f for f in findings_a}
+    titles_b = {f.title: f for f in findings_b}
+
+    new_findings      = [_findings_to_dict(f) for t, f in titles_b.items() if t not in titles_a]
+    resolved_findings = [_findings_to_dict(f) for t, f in titles_a.items() if t not in titles_b]
+    persisted         = [_findings_to_dict(f) for t, f in titles_b.items() if t in titles_a]
+
+    # Severity-changed items
+    changed_severity = []
+    for title, fb in titles_b.items():
+        if title in titles_a:
+            fa = titles_a[title]
+            sev_a = fa.severity.value if hasattr(fa.severity, "value") else str(fa.severity)
+            sev_b = fb.severity.value if hasattr(fb.severity, "value") else str(fb.severity)
+            if sev_a != sev_b:
+                changed_severity.append({
+                    "title": title, "old_severity": sev_a, "new_severity": sev_b
+                })
+
+    from sentinelai.core.llm_client import get_llm_client
+    llm = get_llm_client()
+
+    # Pre-build text blocks (backslashes not allowed in Python 3.11 f-string expressions)
+    nl = "\n"
+    new_lines = nl.join(
+        f"- [{f['severity'].upper()}] {f['title']}" for f in new_findings[:10]
+    )
+    resolved_lines = nl.join(f"- {f['title']}" for f in resolved_findings[:10])
+    changed_lines  = nl.join(
+        f"- {c['title']}: {c['old_severity']} -> {c['new_severity']}"
+        for c in changed_severity
+    )
+    scan_a_ts = scan_a.created_at.strftime("%Y-%m-%d %H:%M")
+    scan_b_ts = scan_b.created_at.strftime("%Y-%m-%d %H:%M")
+
+    prompt = f"""Compare these two security scans of the same target and write a delta report.
+
+Target: {scan_b.target}
+Scan A (older): {scan_a_ts} UTC — {len(findings_a)} findings
+Scan B (newer): {scan_b_ts} UTC — {len(findings_b)} findings
+
+NEW findings in B (not in A): {len(new_findings)}
+{new_lines}
+
+RESOLVED since A (in A, not in B): {len(resolved_findings)}
+{resolved_lines}
+
+SEVERITY CHANGES: {len(changed_severity)}
+{changed_lines}
+
+PERSISTED (unchanged): {len(persisted)} findings
+
+Write a concise delta report covering:
+1. Overall security posture change (improved / degraded / unchanged)
+2. Most critical new findings and their risk
+3. Notable resolutions and whether they appear genuine fixes
+4. Any severity escalations that need immediate attention
+5. Recommended next actions"""
+
+    narrative = await llm.complete(prompt)
+
+    return {
+        "scan_a": {"id": a, "target": scan_a.target,
+                   "created_at": scan_a.created_at.isoformat(),
+                   "finding_count": len(findings_a)},
+        "scan_b": {"id": b, "target": scan_b.target,
+                   "created_at": scan_b.created_at.isoformat(),
+                   "finding_count": len(findings_b)},
+        "delta": {
+            "new":              new_findings,
+            "resolved":         resolved_findings,
+            "changed_severity": changed_severity,
+            "persisted_count":  len(persisted),
+        },
+        "narrative": narrative,
+    }
+
+
+# ── Portfolio view ─────────────────────────────────────────────────────────
+
+@app.get("/api/v1/portfolio", tags=["Portfolio"])
+async def portfolio(_auth: str = Depends(jwt_or_api_key)):
+    """Return per-target security posture summary across all scans."""
+    async with get_session_factory()() as session:
+        scans = (await session.execute(
+            select(Scan).where(Scan.status == ScanStatus.COMPLETED)
+            .order_by(desc(Scan.created_at))
+        )).scalars().all()
+        findings = (await session.execute(select(Finding))).scalars().all()
+
+    # Group findings by scan_id for quick lookup
+    findings_by_scan: dict[str, list] = {}
+    for f in findings:
+        findings_by_scan.setdefault(f.scan_id, []).append(f)
+
+    # Build per-target summary — keep only the latest scan per target
+    targets: dict[str, dict] = {}
+    for scan in scans:
+        t = scan.target
+        if t not in targets:
+            scan_findings = findings_by_scan.get(scan.id, [])
+            open_findings = [f for f in scan_findings
+                             if (f.rem_status or "open") not in ("fixed", "false_positive")]
+            kev_count = sum(1 for f in open_findings if f.is_kev)
+            sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+            worst = min(
+                (f.severity.value if hasattr(f.severity, "value") else str(f.severity)
+                 for f in open_findings),
+                key=lambda s: sev_order.get(s, 5),
+                default="none"
+            )
+            # Risk score: 100 − weighted penalty
+            penalty = sum({
+                "critical": 25, "high": 10, "medium": 4, "low": 1, "info": 0
+            }.get(f.severity.value if hasattr(f.severity, "value") else str(f.severity), 0)
+                          for f in open_findings)
+            risk_score = max(0, 100 - penalty)
+
+            targets[t] = {
+                "target":          t,
+                "last_scan_id":    scan.id,
+                "last_scan_at":    scan.created_at.isoformat(),
+                "scan_type":       scan.scan_type.value if hasattr(scan.scan_type, "value") else str(scan.scan_type),
+                "total_findings":  len(scan_findings),
+                "open_findings":   len(open_findings),
+                "kev_count":       kev_count,
+                "worst_severity":  worst,
+                "risk_score":      risk_score,
+                "scan_count":      sum(1 for s in scans if s.target == t),
+            }
+
+    sorted_targets = sorted(targets.values(), key=lambda x: x["risk_score"])
+    return {
+        "targets":       sorted_targets,
+        "total_targets": len(sorted_targets),
+        "kev_total":     sum(t["kev_count"] for t in sorted_targets),
+        "critical_targets": sum(1 for t in sorted_targets if t["worst_severity"] == "critical"),
+    }
+
+
+# ── KEV status endpoint ────────────────────────────────────────────────────
+
+@app.get("/api/v1/kev/status", tags=["Threat Intel"])
+async def kev_status(_auth: str = Depends(jwt_or_api_key)):
+    """Return CISA KEV catalog info: last fetch time and catalog size."""
+    return {
+        "catalog_size":   len(_kev_set),
+        "last_fetched":   datetime.utcfromtimestamp(_kev_last_fetch).isoformat() if _kev_last_fetch else None,
+        "fetch_url":      _KEV_URL,
     }

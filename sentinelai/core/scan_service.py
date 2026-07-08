@@ -135,6 +135,12 @@ class ScanService:
                     "summary": scan.summary,
                 }
         await send_alert(scan_dict, critical_count, high_count)
+        # Mark any findings whose CVE ID is in the CISA KEV catalog
+        try:
+            from sentinelai.api.main import _mark_kev_findings
+            await _mark_kev_findings(scan_id)
+        except Exception:
+            pass
 
     async def _fail_scan(self, scan_id, error):
         async with get_session_factory()() as session:

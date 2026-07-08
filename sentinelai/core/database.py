@@ -4,7 +4,7 @@ Uses SQLAlchemy async with SQLite (dev) or PostgreSQL (prod).
 """
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Text, DateTime, Enum, JSON, Integer, Boolean
+from sqlalchemy import String, Text, DateTime, Enum, JSON, Integer, Boolean, Float
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 import enum
@@ -42,6 +42,14 @@ class Severity(str, enum.Enum):
     INFO     = "info"
 
 
+class RemediationStatus(str, enum.Enum):
+    OPEN             = "open"
+    ACKNOWLEDGED     = "acknowledged"
+    IN_PROGRESS      = "in_progress"
+    FIXED            = "fixed"
+    FALSE_POSITIVE   = "false_positive"
+
+
 # ── Models ─────────────────────────────────────────────────────────────────
 
 class Scan(Base):
@@ -73,12 +81,18 @@ class Finding(Base):
     title:         Mapped[str]      = mapped_column(String(500))
     description:   Mapped[str]      = mapped_column(Text)
     severity:      Mapped[Severity] = mapped_column(Enum(Severity))
-    cvss_score:    Mapped[Optional[float]] = mapped_column(nullable=True)
+    cvss_score:    Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     cve_id:        Mapped[Optional[str]]   = mapped_column(String(20), nullable=True)
     mitre_attack:  Mapped[Optional[str]]   = mapped_column(String(50), nullable=True)
     evidence:      Mapped[Optional[str]]   = mapped_column(Text, nullable=True)
     remediation:   Mapped[Optional[str]]   = mapped_column(Text, nullable=True)
     created_at:    Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Remediation workflow
+    rem_status:    Mapped[str]             = mapped_column(String(20), default="open")
+    rem_notes:     Mapped[Optional[str]]   = mapped_column(Text, nullable=True)
+    rem_at:        Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # CISA KEV flag
+    is_kev:        Mapped[bool]            = mapped_column(Boolean, default=False)
 
 
 class Schedule(Base):
@@ -210,6 +224,23 @@ class ActivityEvent(Base):
     created_at:  Mapped[datetime]      = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class CodeAudit(Base):
+    """Security audit of a code file via AST analysis + LLM."""
+    __tablename__ = "code_audits"
+
+    id:             Mapped[str]           = mapped_column(String(36), primary_key=True)
+    user_id:        Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    filename:       Mapped[str]           = mapped_column(String(255))
+    language:       Mapped[str]           = mapped_column(String(50))
+    security_score: Mapped[int]           = mapped_column(Integer, default=100)
+    grade:          Mapped[str]           = mapped_column(String(2), default="A")
+    finding_count:  Mapped[int]           = mapped_column(Integer, default=0)
+    critical_count: Mapped[int]           = mapped_column(Integer, default=0)
+    llm_analysis:   Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_results:    Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at:     Mapped[datetime]      = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # ── Engine and session ─────────────────────────────────────────────────────
 
 _engine = None
@@ -237,6 +268,28 @@ def get_session_factory():
 
 
 async def init_db():
-    """Create all tables on startup."""
+    """Create all tables and run additive column migrations on startup."""
     async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate(conn)
+
+
+async def _migrate(conn):
+    """Add new columns to existing tables without dropping data (SQLite ALTER TABLE)."""
+    migrations = [
+        # Finding: remediation workflow + KEV flag
+        ("findings", "rem_status",  "TEXT NOT NULL DEFAULT 'open'"),
+        ("findings", "rem_notes",   "TEXT"),
+        ("findings", "rem_at",      "DATETIME"),
+        ("findings", "is_kev",      "BOOLEAN NOT NULL DEFAULT 0"),
+        # CodeAudit table is created by create_all; no extra columns needed here
+    ]
+    for table, column, col_def in migrations:
+        try:
+            await conn.execute(
+                __import__("sqlalchemy").text(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
+                )
+            )
+        except Exception:
+            pass  # column already exists — safe to ignore
