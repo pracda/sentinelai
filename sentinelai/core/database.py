@@ -224,6 +224,20 @@ class ActivityEvent(Base):
     created_at:  Mapped[datetime]      = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class CveWatchlistEntry(Base):
+    """User subscription to alerts when a named service appears in scan findings."""
+    __tablename__ = "cve_watchlist"
+
+    id:                 Mapped[str]           = mapped_column(String(36), primary_key=True)
+    user_id:            Mapped[str]           = mapped_column(String(36))
+    service_name:       Mapped[str]           = mapped_column(String(100))   # e.g. "nginx", "openssh"
+    min_severity:       Mapped[str]           = mapped_column(String(20), default="high")  # critical/high/medium/low/any
+    is_active:          Mapped[bool]          = mapped_column(Boolean, default=True)
+    created_at:         Mapped[datetime]      = mapped_column(DateTime, default=datetime.utcnow)
+    last_triggered_at:  Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    trigger_count:      Mapped[int]           = mapped_column(Integer, default=0)
+
+
 class CodeAudit(Base):
     """Security audit of a code file via AST analysis + LLM."""
     __tablename__ = "code_audits"

@@ -31,7 +31,7 @@ from sentinelai.core.database import (
     init_db, get_session_factory,
     Scan, Finding, Schedule, LogAnalysis, ScanStatus, ScanType,
     User, UserApiKey, UsageLog, SecurityEvent, AlertRule, ActivityEvent,
-    CodeAudit, RemediationStatus,
+    CodeAudit, RemediationStatus, CveWatchlistEntry,
 )
 from sentinelai.core.security import (
     verify_api_key, rate_limit_dependency,
@@ -2000,3 +2000,133 @@ async def kev_status(_auth: str = Depends(jwt_or_api_key)):
         "last_fetched":   datetime.utcfromtimestamp(_kev_last_fetch).isoformat() if _kev_last_fetch else None,
         "fetch_url":      _KEV_URL,
     }
+
+
+# ── CVE / Service Watchlist ────────────────────────────────────────────────
+
+_SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4, "any": 5}
+
+
+class WatchlistRequest(BaseModel):
+    service_name: str = Field(..., min_length=1, max_length=100,
+                               description="Service name to watch, e.g. nginx, openssh, apache")
+    min_severity: str = Field(default="high",
+                               description="Minimum severity to alert on: critical/high/medium/low/any")
+
+
+@app.get("/api/v1/watchlist", tags=["Watchlist"])
+async def list_watchlist(current_user: dict = Depends(get_current_user)):
+    """List the current user's CVE/service watchlist entries."""
+    async with get_session_factory()() as session:
+        rows = (await session.execute(
+            select(CveWatchlistEntry)
+            .where(CveWatchlistEntry.user_id == current_user["sub"])
+            .order_by(desc(CveWatchlistEntry.created_at))
+        )).scalars().all()
+    return {"entries": [_watchlist_to_dict(r) for r in rows]}
+
+
+@app.post("/api/v1/watchlist", tags=["Watchlist"])
+async def add_watchlist(req: WatchlistRequest, current_user: dict = Depends(get_current_user)):
+    """Subscribe to alerts when a service appears in scan findings."""
+    if req.min_severity not in _SEV_ORDER:
+        raise HTTPException(status_code=400,
+                            detail=f"min_severity must be one of {list(_SEV_ORDER.keys())}")
+    async with get_session_factory()() as session:
+        # Prevent duplicate subscriptions for the same user + service
+        existing = (await session.execute(
+            select(CveWatchlistEntry).where(
+                CveWatchlistEntry.user_id == current_user["sub"],
+                func.lower(CveWatchlistEntry.service_name) == req.service_name.lower()
+            )
+        )).scalars().first()
+        if existing:
+            raise HTTPException(status_code=409,
+                                detail=f"Already watching '{req.service_name}'")
+        entry = CveWatchlistEntry(
+            id=str(uuid.uuid4()),
+            user_id=current_user["sub"],
+            service_name=req.service_name.lower().strip(),
+            min_severity=req.min_severity,
+            is_active=True,
+            created_at=datetime.utcnow(),
+        )
+        session.add(entry)
+        await session.commit()
+    return {"message": "Watchlist entry created", "entry": _watchlist_to_dict(entry)}
+
+
+@app.delete("/api/v1/watchlist/{entry_id}", tags=["Watchlist"])
+async def delete_watchlist(entry_id: str, current_user: dict = Depends(get_current_user)):
+    async with get_session_factory()() as session:
+        row = await session.get(CveWatchlistEntry, entry_id)
+        if not row or row.user_id != current_user["sub"]:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        await session.delete(row)
+        await session.commit()
+    return {"message": "Watchlist entry removed"}
+
+
+@app.patch("/api/v1/watchlist/{entry_id}/toggle", tags=["Watchlist"])
+async def toggle_watchlist(entry_id: str, current_user: dict = Depends(get_current_user)):
+    async with get_session_factory()() as session:
+        row = await session.get(CveWatchlistEntry, entry_id)
+        if not row or row.user_id != current_user["sub"]:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        row.is_active = not row.is_active
+        await session.commit()
+        return {"message": f"{'Enabled' if row.is_active else 'Paused'}", "is_active": row.is_active}
+
+
+def _watchlist_to_dict(r: CveWatchlistEntry) -> dict:
+    return {
+        "id": r.id, "service_name": r.service_name, "min_severity": r.min_severity,
+        "is_active": r.is_active, "trigger_count": r.trigger_count,
+        "last_triggered_at": r.last_triggered_at.isoformat() if r.last_triggered_at else None,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+async def _check_watchlist(scan_id: str, findings: list) -> None:
+    """After a scan completes, check findings against all active watchlist entries
+    and fire notifications for any matches."""
+    if not findings:
+        return
+    async with get_session_factory()() as session:
+        entries = (await session.execute(
+            select(CveWatchlistEntry).where(CveWatchlistEntry.is_active == True)
+        )).scalars().all()
+
+        if not entries:
+            return
+
+        # Build a lookup: service keyword → list of matching findings
+        for entry in entries:
+            keyword = entry.service_name.lower()
+            matched = [
+                f for f in findings
+                if keyword in (f.get("title", "") + f.get("description", "")).lower()
+                and _SEV_order_val(f.get("severity", "info")) <= _SEV_ORDER.get(entry.min_severity, 5)
+            ]
+            if not matched:
+                continue
+
+            # Update trigger stats
+            db_entry = await session.get(CveWatchlistEntry, entry.id)
+            if db_entry:
+                db_entry.trigger_count += 1
+                db_entry.last_triggered_at = datetime.utcnow()
+
+            # Fire notification via existing alert system
+            from sentinelai.core.notifier import send_watchlist_alert
+            asyncio.create_task(send_watchlist_alert(
+                entry=_watchlist_to_dict(entry),
+                scan_id=scan_id,
+                matched_findings=matched[:5],
+            ))
+
+        await session.commit()
+
+
+def _SEV_order_val(sev: str) -> int:
+    return _SEV_ORDER.get(str(sev).lower(), 5)

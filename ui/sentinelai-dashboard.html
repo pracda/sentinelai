@@ -160,6 +160,23 @@
   /* ── User display ── */
   .user-chip{display:flex;align-items:center;gap:8px;border-left:1px solid var(--border);padding-left:12px;margin-left:4px;}
   .user-avatar{width:22px;height:22px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;font-family:var(--mono);}
+
+  /* ── Print / PDF export ── */
+  @media print {
+    :root { --bg:#fff; --bg2:#f8f8f8; --bg3:#efefef; --border:#ddd;
+            --text:#111; --text2:#333; --text3:#666; --red:#c00;
+            --orange:#b45309; --green:#166534; --accent:#1d4ed8; }
+    .nav, .sidebar, .status-bar, .modal-overlay,
+    #login-btn, button, select, input,
+    .btn, [onclick] { display:none !important; }
+    .shell { display:block !important; }
+    .body  { display:block !important; }
+    #main-content { padding:0; overflow:visible; }
+    .card  { break-inside:avoid; border:1px solid #ddd; margin-bottom:12px; }
+    .stream-box { max-height:none !important; }
+    .threat-item { border:1px solid #ddd; }
+    .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); }
+  }
 </style>
 </head>
 <body>
@@ -189,6 +206,7 @@
         <button class="btn btn-ghost" style="padding:3px 10px;font-size:11px" onclick="doLogout()">Sign out</button>
       </div>
       <button id="login-btn" class="btn btn-ghost" style="padding:4px 10px;font-size:11px;margin-left:4px" onclick="showAuthPage()">Sign in</button>
+      <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;margin-left:4px" onclick="exportPDF()" title="Export current view as PDF">⬇ PDF</button>
     </div>
   </div>
   <div class="body">
@@ -1833,6 +1851,9 @@ async function renderAlerts() {
 
   const triggerLabel = {scan_complete:'Scan complete',critical_finding:'Critical finding',high_finding:'High finding',brute_force:'Brute force detected',all:'All events'};
 
+  let watchlist = {entries:[]};
+  try { watchlist = await apiFetch('/api/v1/watchlist'); } catch{}
+
   main.innerHTML = `
     <div class="card">
       <div class="card-header">
@@ -1898,6 +1919,66 @@ async function renderAlerts() {
           <button class="btn btn-ghost" onclick="document.getElementById('create-alert-card').style.display='none'">Cancel</button>
         </div>
       </div>
+    </div>
+
+    <!-- CVE / Service Watchlist -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header">
+        <span class="c-accent">◎</span>
+        <span class="card-title">Service Watchlist</span>
+        <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:var(--mono)">${watchlist.entries.length} subscriptions</span>
+        <span style="margin-left:8px;font-size:10px;color:var(--text2)">— get alerted when a watched service appears in scan findings</span>
+        <button class="btn btn-green" style="margin-left:auto;font-size:11px" onclick="showAddWatchlist()">+ Watch service</button>
+      </div>
+      <div class="card-body" id="watchlist-body">
+        ${watchlist.entries.length === 0
+          ? `<div class="empty"><div class="empty-icon">◎</div><div class="empty-text">No services watched yet.<br>Add a service name (e.g. <code>nginx</code>, <code>openssh</code>) to get alerted when it appears in findings.</div></div>`
+          : `<table class="scan-table">
+              <thead><tr><th>Service</th><th>Min severity</th><th>Triggers</th><th>Last triggered</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                ${watchlist.entries.map(e=>`
+                  <tr>
+                    <td style="font-family:var(--mono);color:var(--text)">${escHtml(e.service_name)}</td>
+                    <td><span class="sev-badge sev-${e.min_severity==='any'?'info':e.min_severity}">${e.min_severity}</span></td>
+                    <td class="c-orange">${e.trigger_count}</td>
+                    <td style="color:var(--text3);font-size:10px">${e.last_triggered_at ? formatDate(e.last_triggered_at) : '—'}</td>
+                    <td><span class="status-chip ${e.is_active?'s-completed':'s-pending'}">${e.is_active?'active':'paused'}</span></td>
+                    <td style="display:flex;gap:6px">
+                      <button class="btn btn-ghost" style="padding:3px 10px;font-size:10px" onclick="toggleWatchlist('${e.id}')">${e.is_active?'Pause':'Resume'}</button>
+                      <button class="btn btn-ghost" style="padding:3px 10px;font-size:10px;color:var(--red)" onclick="deleteWatchlist('${e.id}','${escHtml(e.service_name)}')">Remove</button>
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>`}
+      </div>
+    </div>
+
+    <!-- Add watchlist form -->
+    <div class="card" id="add-watchlist-card" style="display:none;margin-top:8px">
+      <div class="card-header"><span class="c-green">+</span><span class="card-title">Watch a service</span></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-group">
+            <label class="form-label">Service name</label>
+            <input class="log-source-input" id="watch-service" placeholder="e.g. nginx, openssh, apache, mysql" style="width:100%">
+            <div style="font-size:10px;color:var(--text3);margin-top:4px">Case-insensitive. Matches anywhere in finding title or description.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Minimum severity to alert</label>
+            <select class="log-source-input" id="watch-severity" style="width:100%">
+              <option value="critical">Critical only</option>
+              <option value="high" selected>High and above</option>
+              <option value="medium">Medium and above</option>
+              <option value="low">Low and above</option>
+              <option value="any">Any finding</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="addWatchlist()">Add to watchlist</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('add-watchlist-card').style.display='none'">Cancel</button>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -1936,6 +2017,42 @@ async function deleteAlert(id, name) {
   try {
     await apiFetch(`/api/v1/alerts/rules/${id}`, {method:'DELETE'});
     toast(`Rule "${name}" deleted`);
+    renderAlerts();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+function showAddWatchlist() {
+  const card = document.getElementById('add-watchlist-card');
+  if (card) { card.style.display=''; card.scrollIntoView({behavior:'smooth'}); }
+}
+
+async function addWatchlist() {
+  const service  = document.getElementById('watch-service').value.trim().toLowerCase();
+  const severity = document.getElementById('watch-severity').value;
+  if (!service) { toast('Enter a service name', 'error'); return; }
+  try {
+    await apiFetch('/api/v1/watchlist', {
+      method: 'POST',
+      body: JSON.stringify({service_name: service, min_severity: severity})
+    });
+    toast(`Now watching '${service}' ✓`);
+    renderAlerts();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function toggleWatchlist(id) {
+  try {
+    const r = await apiFetch(`/api/v1/watchlist/${id}/toggle`, {method:'PATCH'});
+    toast(`Watchlist entry ${r.is_active ? 'enabled' : 'paused'} ✓`);
+    renderAlerts();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function deleteWatchlist(id, name) {
+  if (!confirm(`Stop watching '${name}'?`)) return;
+  try {
+    await apiFetch(`/api/v1/watchlist/${id}`, {method:'DELETE'});
+    toast(`Removed '${name}' from watchlist`);
     renderAlerts();
   } catch(e) { toast('Failed: ' + e.message, 'error'); }
 }
@@ -2463,6 +2580,21 @@ async function runScanDiff() {
   } catch(e) {
     out.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`;
   }
+}
+
+// ── PDF export ─────────────────────────────────────────────────────────────
+function exportPDF() {
+  // Add a temporary print title so the page context is clear
+  const titleEl = document.createElement('div');
+  titleEl.id = '__print-header';
+  titleEl.style.cssText = 'font-family:monospace;font-size:13px;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #333;display:none';
+  titleEl.innerHTML = `<strong>SentinelAI — Security Report</strong> &nbsp;|&nbsp; ${new Date().toLocaleString()}`;
+  document.getElementById('main-content').prepend(titleEl);
+  titleEl.style.display = 'block';
+
+  window.print();
+
+  setTimeout(() => titleEl.remove(), 500);
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────

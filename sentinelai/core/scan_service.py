@@ -141,6 +141,26 @@ class ScanService:
             await _mark_kev_findings(scan_id)
         except Exception:
             pass
+        # Check findings against user watchlists and fire notifications
+        try:
+            from sentinelai.api.main import _check_watchlist
+            from sentinelai.core.database import Finding
+            from sqlalchemy import select as _select
+            async with get_session_factory()() as _s:
+                _findings = (await _s.execute(
+                    _select(Finding).where(Finding.scan_id == scan_id)
+                )).scalars().all()
+            findings_dicts = [
+                {
+                    "title": f.title, "description": f.description,
+                    "severity": f.severity.value if hasattr(f.severity, "value") else str(f.severity),
+                    "cve_id": f.cve_id,
+                }
+                for f in _findings
+            ]
+            await _check_watchlist(scan_id, findings_dicts)
+        except Exception:
+            pass
 
     async def _fail_scan(self, scan_id, error):
         async with get_session_factory()() as session:
