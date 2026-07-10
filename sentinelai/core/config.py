@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 300
     llm_max_tokens: int = 8000
 
+    # ── LLM API Gateway (optional — routes all LLM calls through a proxy) ──
+    # API key is generated from the gateway admin panel (Org → Keys → Generate).
+    # Set LLM_GATEWAY_ENABLED=true and paste the key — no other config needed.
+    llm_gateway_url: str = Field(default="", env="LLM_GATEWAY_URL")
+    llm_gateway_api_key: str = Field(default="", env="LLM_GATEWAY_API_KEY")
+    llm_gateway_enabled: bool = Field(default=False, env="LLM_GATEWAY_ENABLED")
+
     # ── Threat intelligence APIs ───────────────────────────────────────────
     abuseipdb_api_key: str = Field(default="", env="ABUSEIPDB_API_KEY")
     nvd_api_key: str = Field(default="", env="NVD_API_KEY")

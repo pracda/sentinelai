@@ -238,6 +238,22 @@ class CveWatchlistEntry(Base):
     trigger_count:      Mapped[int]           = mapped_column(Integer, default=0)
 
 
+class SystemConfig(Base):
+    """Admin-controlled system settings stored in the database.
+
+    Keys used by LLM gateway integration:
+      llm_gateway_enabled  — "true" or "false"
+      llm_gateway_url      — base URL, e.g. "http://localhost:8080"
+      llm_gateway_api_key  — org API key generated from the gateway admin panel
+    """
+    __tablename__ = "system_config"
+
+    key:        Mapped[str]           = mapped_column(String(100), primary_key=True)
+    value:      Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime]      = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+
 class CodeAudit(Base):
     """Security audit of a code file via AST analysis + LLM."""
     __tablename__ = "code_audits"
@@ -296,7 +312,7 @@ async def _migrate(conn):
         ("findings", "rem_notes",   "TEXT"),
         ("findings", "rem_at",      "DATETIME"),
         ("findings", "is_kev",      "BOOLEAN NOT NULL DEFAULT 0"),
-        # CodeAudit table is created by create_all; no extra columns needed here
+        # system_config created by create_all; no extra columns needed
     ]
     for table, column, col_def in migrations:
         try:

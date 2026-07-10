@@ -31,7 +31,7 @@ from sentinelai.core.database import (
     init_db, get_session_factory,
     Scan, Finding, Schedule, LogAnalysis, ScanStatus, ScanType,
     User, UserApiKey, UsageLog, SecurityEvent, AlertRule, ActivityEvent,
-    CodeAudit, RemediationStatus, CveWatchlistEntry,
+    CodeAudit, RemediationStatus, CveWatchlistEntry, SystemConfig,
 )
 from sentinelai.core.security import (
     verify_api_key, rate_limit_dependency,
@@ -136,6 +136,28 @@ async def _load_db_api_keys():
         log.warning("Could not load user API keys from DB", error=str(e))
 
 
+async def _load_gateway_config():
+    """Load LLM gateway config from system_config table into llm_client's in-memory override."""
+    from sentinelai.core.llm_client import set_gateway_config, clear_gateway_config
+    try:
+        async with get_session_factory()() as session:
+            rows = (await session.execute(
+                select(SystemConfig).where(SystemConfig.key.like("llm_gateway_%"))
+            )).scalars().all()
+        cfg = {r.key: r.value for r in rows}
+        api_key = cfg.get("llm_gateway_api_key", "")
+        if api_key:
+            set_gateway_config(
+                enabled=cfg.get("llm_gateway_enabled", "false").lower() == "true",
+                url=cfg.get("llm_gateway_url", ""),
+                api_key=api_key,
+            )
+        else:
+            clear_gateway_config()
+    except Exception as e:
+        log.warning("Could not load gateway config from DB, using env vars", error=str(e))
+
+
 async def _ensure_admin_emails():
     """Promote any user whose email is in ADMIN_EMAILS to admin — runs on every startup.
     This is idempotent and survives DB restores from S3/litestream."""
@@ -216,6 +238,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     init_api_keys()
     await _load_db_api_keys()
+    await _load_gateway_config()
     await _ensure_admin_emails()
     scheduler_task = asyncio.create_task(_scheduler_loop())
     kev_task = asyncio.create_task(_kev_refresh_loop())
@@ -1655,6 +1678,81 @@ async def admin_analytics(
             for e in all_sec[:10]
         ],
         "daily_activity": dict(sorted(daily.items())),
+    }
+
+
+# ── LLM Gateway config (admin only) ───────────────────────────────────────
+
+class GatewayConfigUpdate(BaseModel):
+    enabled: bool
+    url: str = Field(..., min_length=1, max_length=500)
+    api_key: Optional[str] = Field(default=None, description="Omit to keep the existing key")
+
+
+@app.get("/api/v1/admin/llm-gateway", tags=["Admin"])
+async def get_llm_gateway_config(admin: dict = Depends(require_admin)):
+    """Return the current LLM gateway configuration. API key is shown as prefix only."""
+    async with get_session_factory()() as session:
+        rows = (await session.execute(
+            select(SystemConfig).where(SystemConfig.key.like("llm_gateway_%"))
+        )).scalars().all()
+    cfg = {r.key: r.value for r in rows}
+    raw_key = cfg.get("llm_gateway_api_key", "")
+    return {
+        "enabled":        cfg.get("llm_gateway_enabled", "false").lower() == "true",
+        "url":            cfg.get("llm_gateway_url", settings.llm_gateway_url),
+        "api_key_set":    bool(raw_key),
+        "api_key_prefix": (raw_key[:12] + "...") if raw_key else None,
+        "source":         "database" if cfg else "env",
+    }
+
+
+@app.put("/api/v1/admin/llm-gateway", tags=["Admin"])
+async def update_llm_gateway_config(
+    body: GatewayConfigUpdate,
+    admin: dict = Depends(require_admin),
+):
+    """Save LLM gateway config to DB and apply immediately (no restart needed).
+    Omit api_key to keep the existing key unchanged."""
+    from sentinelai.core.llm_client import set_gateway_config, clear_gateway_config
+
+    async with get_session_factory()() as session:
+        # Fetch existing key if caller didn't supply a new one
+        existing_key_row = await session.get(SystemConfig, "llm_gateway_api_key")
+        existing_key = existing_key_row.value if existing_key_row else ""
+
+        final_key = body.api_key.strip() if body.api_key and body.api_key.strip() else existing_key
+
+        # Upsert all three config rows
+        for key, value in [
+            ("llm_gateway_enabled", "true" if body.enabled else "false"),
+            ("llm_gateway_url",     body.url.rstrip("/")),
+            ("llm_gateway_api_key", final_key),
+        ]:
+            row = await session.get(SystemConfig, key)
+            if row:
+                row.value      = value
+                row.updated_at = datetime.utcnow()
+                row.updated_by = admin.get("username", admin.get("sub"))
+            else:
+                session.add(SystemConfig(
+                    key=key, value=value,
+                    updated_by=admin.get("username", admin.get("sub")),
+                ))
+        await session.commit()
+
+    # Apply to in-memory override immediately — no restart needed
+    if final_key:
+        set_gateway_config(enabled=body.enabled, url=body.url.rstrip("/"), api_key=final_key)
+    else:
+        clear_gateway_config()
+
+    return {
+        "message":        "Gateway config saved and applied",
+        "enabled":        body.enabled,
+        "url":            body.url.rstrip("/"),
+        "api_key_set":    bool(final_key),
+        "api_key_prefix": (final_key[:12] + "...") if final_key else None,
     }
 
 
