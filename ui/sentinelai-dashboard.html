@@ -2074,12 +2074,14 @@ async function renderAdmin() {
     main.innerHTML = `<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`; return;
   }
 
-  const adminTabs = ['users','events','usage'];
+  const adminTabs = ['users','events','usage','gateway'];
   let activeTab = 'users';
 
-  // Fetch analytics data too
+  // Fetch analytics + gateway config in parallel
   let analytics = {summary:{},feature_usage:{},top_users:[],security_events_by_type:{},daily_activity:{},endpoint_performance:[]};
+  let gwConfig = {enabled:false,url:'',api_key_set:false,api_key_prefix:'',source:'env'};
   try { analytics = await apiFetch('/api/v1/admin/analytics?days=7'); } catch {}
+  try { gwConfig = await apiFetch('/api/v1/admin/llm-gateway'); } catch {}
 
   main.innerHTML = `
     <div class="stat-grid">
@@ -2096,6 +2098,7 @@ async function renderAdmin() {
           <div class="tab" id="atab-users" onclick="renderAdminTab('users')">Users (${users.count})</div>
           <div class="tab" id="atab-events" onclick="renderAdminTab('events')">Security Events (${events.count})</div>
           <div class="tab" id="atab-usage" onclick="renderAdminTab('usage')">Usage Log</div>
+          <div class="tab" id="atab-gateway" onclick="renderAdminTab('gateway')" style="color:${gwConfig.enabled?'var(--green)':'var(--text2)'}">⬡ LLM Gateway</div>
         </div>
         <div id="admin-tab-body"></div>
       </div>
@@ -2258,6 +2261,60 @@ async function renderAdmin() {
                 </tr>`).join('')}
             </tbody>
           </table>`;
+
+    } else if (tab === 'gateway') {
+      const gwUrl = gwConfig.url || '';
+      const gwEnabled = gwConfig.enabled;
+      const gwKeySet = gwConfig.api_key_set;
+      const gwPrefix = gwConfig.api_key_prefix || '';
+      const gwSource = gwConfig.source || 'env';
+      const dashUrl = (gwUrl || 'http://52.200.85.44:8080') + '/admin-dashboard.html';
+      body.innerHTML = `
+        <div style="max-width:560px;padding:8px 0">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+            <span style="font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid ${gwEnabled?'var(--green)':'var(--border2)'};color:${gwEnabled?'var(--green)':'var(--text3)'};background:var(--bg3)">${gwEnabled?'● ENABLED':'○ DISABLED'}</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">source: ${gwSource}</span>
+            ${gwKeySet
+              ? `<span style="font-family:var(--mono);font-size:10px;color:var(--accent)">key: ${escHtml(gwPrefix)}</span>`
+              : `<span style="font-family:var(--mono);font-size:10px;color:var(--red)">⚠ no key configured</span>`}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
+              <input type="checkbox" id="gw-enabled" ${gwEnabled?'checked':''} style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">
+              <span style="font-family:var(--mono);font-size:12px;color:var(--text)">Enable LLM Gateway routing</span>
+              <span style="font-size:10px;color:var(--text3)">(falls back to direct Anthropic if disabled or unreachable)</span>
+            </label>
+            <div>
+              <div class="section-label" style="margin-bottom:6px">Gateway URL</div>
+              <input id="gw-url" type="text" placeholder="http://52.200.85.44:8080"
+                value="${escHtml(gwUrl)}"
+                style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:6px;box-sizing:border-box"
+                onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            </div>
+            <div>
+              <div class="section-label" style="margin-bottom:6px">
+                API Key
+                ${gwKeySet?`<span style="color:var(--text3);font-weight:normal;text-transform:none;letter-spacing:0"> — current: <span style="color:var(--accent)">${escHtml(gwPrefix)}</span></span>`:''}
+              </div>
+              <input id="gw-key" type="password"
+                placeholder="${gwKeySet?'Leave blank to keep current key — enter new key to rotate':'gw_...'}"
+                style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:6px;box-sizing:border-box"
+                onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+              <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:5px">Generate from gateway admin panel → Organizations → your org → Keys → Generate key</div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:4px">
+              <button class="btn btn-primary" onclick="saveGatewayConfig()">Save & Apply</button>
+              <button class="btn btn-ghost" onclick="renderAdmin()">Refresh Status</button>
+            </div>
+            <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+              <div class="section-label" style="margin-bottom:8px">Gateway Admin Panel</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--text3);line-height:1.8">
+                <div>URL: <a href="${escHtml(dashUrl)}" target="_blank" style="color:var(--accent);text-decoration:none">${escHtml(dashUrl)}</a></div>
+                <div style="margin-top:4px">Live at: <span style="color:var(--text2)">http://52.200.85.44:8080</span> (AWS us-east-1)</div>
+              </div>
+            </div>
+          </div>
+        </div>`;
     }
   }
 
@@ -2274,6 +2331,23 @@ async function adminToggleUser(id, username, isActive) {
     toast(`User "${username}" ${r.is_active ? 'enabled' : 'disabled'} ✓`);
     renderAdmin();
   } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function saveGatewayConfig() {
+  const enabled = document.getElementById('gw-enabled').checked;
+  const url = (document.getElementById('gw-url').value || '').trim();
+  const key = (document.getElementById('gw-key').value || '').trim();
+  if (!url) { toast('Gateway URL is required', 'error'); return; }
+  const body = { enabled, url };
+  if (key) body.api_key = key;
+  try {
+    const r = await apiFetch('/api/v1/admin/llm-gateway', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+    toast(`Gateway ${r.enabled ? 'enabled' : 'saved'} ✓  (source: ${r.source})`);
+    renderAdmin();
+  } catch(e) { toast('Save failed: ' + e.message, 'error'); }
 }
 
 async function adminViewUserActivity(userId, username) {
