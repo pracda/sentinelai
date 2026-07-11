@@ -11,7 +11,8 @@ from sentinelai.core.database import (
     ScanType, ScanStatus, Severity,
     get_session_factory
 )
-from sentinelai.core.notifier import send_alert
+from sentinelai.core.notifier import send_alert, send_rule_notifications
+from sentinelai.core.database import AlertRule
 from sentinelai.modules.recon.engine import ReconEngine
 from sentinelai.modules.vuln.analyser import VulnAnalyser
 from sentinelai.modules.logs.analyser import LogAnalyser
@@ -135,6 +136,23 @@ class ScanService:
                     "summary": scan.summary,
                 }
         await send_alert(scan_dict, critical_count, high_count)
+
+        # Fire per-user AlertRule notifications
+        try:
+            from sqlalchemy import select as _select
+            async with get_session_factory()() as _s:
+                active_rules = (await _s.execute(
+                    _select(AlertRule).where(AlertRule.is_active == True)
+                )).scalars().all()
+            rules_dicts = [
+                {"trigger": r.trigger, "notify_email": r.notify_email,
+                 "notify_webhook": r.notify_webhook, "is_active": r.is_active}
+                for r in active_rules
+            ]
+            await send_rule_notifications(scan_dict, rules_dicts)
+        except Exception as e:
+            log.warning("Rule notifications failed", error=str(e))
+
         # Mark any findings whose CVE ID is in the CISA KEV catalog
         try:
             from sentinelai.api.main import _mark_kev_findings

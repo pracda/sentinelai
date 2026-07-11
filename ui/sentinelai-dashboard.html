@@ -1117,16 +1117,68 @@ async function viewScan(scanId) {
           </div>
         </div>
       </div>`:''}
-      ${scan.llm_analysis?`
       <div class="card">
-        <div class="card-header"><span class="c-green">▸</span><span class="card-title">AI analysis</span></div>
-        <div class="card-body">
-          <div class="stream-box" style="color:var(--text);max-height:500px">${escHtml(scan.llm_analysis)}</div>
+        <div class="card-header">
+          <span class="c-green">▸</span><span class="card-title">AI Analysis</span>
+          <span id="analysis-status" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text3)"></span>
         </div>
-      </div>`:''}`;
+        <div class="card-body">
+          <div id="analysis-stream-box" class="stream-box" style="color:var(--text);max-height:500px;white-space:pre-wrap">
+            <span style="color:var(--text3)"><span class="spinner"></span> Loading analysis...</span>
+          </div>
+        </div>
+      </div>`;
+    streamScanAnalysis(scanId);
   } catch(e) {
     main.innerHTML=`<div style="color:var(--red);font-family:var(--mono)">Error: ${e.message}</div>`;
   }
+}
+
+function streamScanAnalysis(scanId) {
+  const box = document.getElementById('analysis-stream-box');
+  const status = document.getElementById('analysis-status');
+  if (!box) return;
+
+  const key = document.getElementById('api-key').value.trim();
+  const token = getToken();
+  const headers = [];
+  if (key) headers.push(['X-API-Key', key]);
+  if (token) headers.push(['Authorization', `Bearer ${token}`]);
+
+  // Use fetch with ReadableStream so we can pass auth headers (EventSource can't)
+  const ctrl = new AbortController();
+  let text = '';
+  let dots = 0;
+  let polling = true;
+
+  fetch(`/api/v1/scans/${scanId}/analysis/stream`, {
+    headers: Object.fromEntries(headers),
+    signal: ctrl.signal,
+  }).then(async resp => {
+    if (!resp.ok) { box.textContent = `Error ${resp.status}`; return; }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const chunk = line.slice(5).trim();
+        if (chunk === '[DONE]') { if (status) status.textContent = 'complete'; return; }
+        if (chunk === '[RUNNING]') { if (status) status.textContent = `scanning${'...'.slice(0, ++dots % 4)}`; continue; }
+        if (chunk.startsWith('[')) { box.textContent = chunk; return; }
+        if (polling) { box.textContent = ''; polling = false; }
+        text += (text ? ' ' : '') + chunk;
+        box.textContent = text;
+        box.scrollTop = box.scrollHeight;
+        if (status) status.textContent = 'streaming...';
+      }
+    }
+  }).catch(e => { if (e.name !== 'AbortError') box.textContent = `Stream error: ${e.message}`; });
 }
 
 async function updateRemStatus(findingId, status) {
@@ -1168,6 +1220,22 @@ async function downloadPDF(scanId) {
   } catch(e) {
     toast('PDF error: ' + e.message, 'error');
   }
+}
+
+// ── DB ephemeral warning ───────────────────────────────────────────────────
+async function checkDbWarning() {
+  try {
+    const h = await fetch('/health').then(r=>r.json());
+    if (!h.db_ephemeral) return;
+    const bar = document.createElement('div');
+    bar.id = 'db-warning-bar';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:rgba(251,146,60,0.95);color:#000;font-family:var(--mono);font-size:11px;padding:6px 16px;display:flex;align-items:center;gap:10px;backdrop-filter:blur(4px)';
+    bar.innerHTML = `<span>⚠</span><span><b>SQLite active — all data resets on container restart.</b> Configure PostgreSQL via DATABASE_URL for persistence.</span><button onclick="this.parentElement.remove()" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:14px;color:#000">✕</button>`;
+    document.body.prepend(bar);
+    // Push content down so bar doesn't overlap the header
+    const header = document.querySelector('.header');
+    if (header) header.style.marginTop = '32px';
+  } catch {}
 }
 
 // ── Stats refresh ──────────────────────────────────────────────────────────
@@ -2690,6 +2758,7 @@ function exportPDF() {
 // ── Init ───────────────────────────────────────────────────────────────────
 updateUserDisplay();
 checkHealth();
+checkDbWarning();
 setInterval(checkHealth, 30000);
 
 if (!getToken()) {

@@ -305,21 +305,22 @@ async def init_db():
 
 
 async def _migrate(conn):
-    """Add new columns to existing tables without dropping data (SQLite ALTER TABLE)."""
+    """Add new columns to existing tables without dropping data.
+    Works on both SQLite and PostgreSQL — uses ANSI SQL only."""
+    from sqlalchemy import text as _text
+    is_pg = "postgresql" in str(conn.engine.url) if hasattr(conn, "engine") else False
+
+    bool_default = "BOOLEAN NOT NULL DEFAULT FALSE" if is_pg else "BOOLEAN NOT NULL DEFAULT 0"
+    dt_type = "TIMESTAMPTZ" if is_pg else "DATETIME"
+
     migrations = [
-        # Finding: remediation workflow + KEV flag
-        ("findings", "rem_status",  "TEXT NOT NULL DEFAULT 'open'"),
-        ("findings", "rem_notes",   "TEXT"),
-        ("findings", "rem_at",      "DATETIME"),
-        ("findings", "is_kev",      "BOOLEAN NOT NULL DEFAULT 0"),
-        # system_config created by create_all; no extra columns needed
+        ("findings", "rem_status", "TEXT NOT NULL DEFAULT 'open'"),
+        ("findings", "rem_notes",  "TEXT"),
+        ("findings", "rem_at",     dt_type),
+        ("findings", "is_kev",     bool_default),
     ]
     for table, column, col_def in migrations:
         try:
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
-                )
-            )
+            await conn.execute(_text(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"))
         except Exception:
             pass  # column already exists — safe to ignore

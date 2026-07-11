@@ -111,16 +111,93 @@ def _send_email_sync(subject: str, body: str) -> None:
 
 
 async def send_alert(scan: dict, critical_count: int, high_count: int) -> None:
-    """Fire-and-forget alert. Call after a scan completes."""
+    """Fire global SMTP/Slack alert. Call after a scan completes."""
     if not _should_alert(critical_count, high_count):
         return
 
     subject, body = _build_message(scan)
-
     await _send_slack(scan)
-
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _send_email_sync, subject, body)
+
+
+def _rule_matches(trigger: str, critical_count: int, high_count: int, finding_count: int) -> bool:
+    if trigger == "all":
+        return True
+    if trigger == "scan_complete":
+        return True
+    if trigger == "critical_finding":
+        return critical_count > 0
+    if trigger == "high_finding":
+        return critical_count > 0 or high_count > 0
+    if trigger == "brute_force":
+        return False  # fired separately via send_watchlist_alert / security events
+    return False
+
+
+async def _post_webhook(url: str, payload: dict) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
+            r.raise_for_status()
+        log.info("Rule webhook delivered", url=url[:60])
+    except Exception as e:
+        log.warning("Rule webhook failed", url=url[:60], error=str(e))
+
+
+def _send_rule_email_sync(to: str, subject: str, body: str) -> None:
+    settings = get_settings()
+    if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password]):
+        log.warning("SMTP not configured — skipping rule email", to=to)
+        return
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = settings.smtp_from or settings.smtp_user
+    msg["To"] = to
+    msg.set_content(body)
+    try:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
+            smtp.starttls()
+            smtp.login(settings.smtp_user, settings.smtp_password)
+            smtp.send_message(msg)
+        log.info("Rule email sent", to=to)
+    except Exception as e:
+        log.warning("Rule email failed", to=to, error=str(e))
+
+
+async def send_rule_notifications(scan: dict, alert_rules: list) -> None:
+    """Evaluate each active AlertRule and fire its webhook/email if the trigger matches."""
+    critical = scan.get("critical_count", 0)
+    high = scan.get("high_count", 0)
+    total = scan.get("finding_count", 0)
+
+    subject, body = _build_message(scan)
+    webhook_payload = {
+        "event": "scan_complete",
+        "scan_id": scan.get("id"),
+        "target": scan.get("target"),
+        "scan_type": scan.get("scan_type"),
+        "finding_count": total,
+        "critical_count": critical,
+        "high_count": high,
+        "summary": scan.get("summary", ""),
+    }
+
+    tasks = []
+    loop = asyncio.get_event_loop()
+    for rule in alert_rules:
+        if not rule.get("is_active"):
+            continue
+        if not _rule_matches(rule.get("trigger", ""), critical, high, total):
+            continue
+        if rule.get("notify_webhook"):
+            tasks.append(_post_webhook(rule["notify_webhook"], webhook_payload))
+        if rule.get("notify_email"):
+            email = rule["notify_email"]
+            tasks.append(loop.run_in_executor(None, _send_rule_email_sync, email, subject, body))
+
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def send_watchlist_alert(entry: dict, scan_id: str, matched_findings: list) -> None:

@@ -16,7 +16,7 @@ from fastapi import (
     BackgroundTasks, Depends, Request, Security
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -408,10 +408,14 @@ async def root():
 @app.get("/health", tags=["Health"])
 async def health():
     """Public health check."""
+    db_url = settings.database_url
+    db_type = "postgresql" if "postgresql" in db_url else "sqlite"
     return {
         "status": "healthy",
         "version": settings.app_version,
         "llm_configured": settings.has_anthropic_key(),
+        "db_type": db_type,
+        "db_ephemeral": db_type == "sqlite",
     }
 
 
@@ -471,6 +475,48 @@ async def get_scan(scan_id: str):
         result["llm_analysis"] = scan.llm_analysis
         result["findings"] = [_finding_to_dict(f) for f in findings]
         return result
+
+
+@app.get("/api/v1/scans/{scan_id}/analysis/stream", tags=["Scans"],
+         dependencies=[Depends(jwt_or_api_key)])
+async def stream_scan_analysis(scan_id: str):
+    """Stream the LLM analysis for a scan as SSE.
+    If the scan is still running, polls until complete then streams.
+    If already complete, streams the cached analysis word-by-word."""
+    async def generate():
+        # Poll until the scan has a completed analysis (max 5 min)
+        for _ in range(300):
+            async with get_session_factory()() as session:
+                scan = await session.get(Scan, scan_id)
+            if not scan:
+                yield "data: [ERROR: scan not found]\n\n"
+                return
+            if scan.status == ScanStatus.FAILED:
+                yield f"data: [Scan failed: {scan.error or 'unknown error'}]\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            if scan.status == ScanStatus.COMPLETED and scan.llm_analysis:
+                break
+            yield "data: [RUNNING]\n\n"
+            await asyncio.sleep(1)
+        else:
+            yield "data: [Timed out waiting for analysis]\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        # Stream the stored analysis word by word
+        words = scan.llm_analysis.split(" ")
+        chunk = ""
+        for i, word in enumerate(words):
+            chunk += ("" if chunk == "" else " ") + word
+            if len(chunk) >= 40 or i == len(words) - 1:
+                yield f"data: {chunk}\n\n"
+                chunk = ""
+                await asyncio.sleep(0.02)
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.delete("/api/v1/scans/{scan_id}", tags=["Scans"],
