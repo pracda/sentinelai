@@ -33,6 +33,49 @@ log = structlog.get_logger()
 
 _gateway_override: Optional[dict] = None
 
+# ── Gateway health tracking (in-memory, resets on restart) ────────────────
+_gateway_health: dict = {
+    "fallback_count": 0,
+    "last_fallback_at": None,
+    "last_fallback_reason": None,
+    "auth_error": False,
+    "last_auth_error_at": None,
+}
+
+
+class GatewayAuthError(Exception):
+    """Gateway rejected the API key (401/403). Do not fall back to Anthropic."""
+
+
+def get_gateway_health() -> dict:
+    return dict(_gateway_health)
+
+
+def reset_gateway_health() -> None:
+    _gateway_health.update({
+        "fallback_count": 0,
+        "last_fallback_at": None,
+        "last_fallback_reason": None,
+        "auth_error": False,
+        "last_auth_error_at": None,
+    })
+
+
+def _record_auth_error() -> None:
+    from datetime import datetime
+    _gateway_health["auth_error"] = True
+    _gateway_health["last_auth_error_at"] = datetime.utcnow().isoformat()
+    log.error("LLM gateway API key rejected — fix in Admin → LLM Gateway")
+
+
+def _record_fallback(reason: str) -> None:
+    from datetime import datetime
+    _gateway_health["fallback_count"] += 1
+    _gateway_health["last_fallback_at"] = datetime.utcnow().isoformat()
+    _gateway_health["last_fallback_reason"] = str(reason)[:200]
+    log.warning("LLM gateway unreachable — fell back to direct Anthropic",
+                fallback_count=_gateway_health["fallback_count"], reason=str(reason)[:100])
+
 
 def set_gateway_config(enabled: bool, url: str, api_key: str) -> None:
     """Apply gateway config from DB. Called on startup and on admin save."""
@@ -96,7 +139,8 @@ class LLMClient:
         user_message: str,
         system_prompt: Optional[str] = None,
     ) -> str:
-        """POST /api/v1/chat — full response via org API key."""
+        """POST /api/v1/chat — full response via org API key.
+        Raises GatewayAuthError on 401/403; lets other errors propagate for fallback."""
         url = self._gateway_base_url() + "/api/v1/chat"
         async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds) as http:
             resp = await http.post(
@@ -104,6 +148,9 @@ class LLMClient:
                 json=self._gateway_body(user_message, system_prompt),
                 headers=self._gateway_headers(),
             )
+            if resp.status_code in (401, 403):
+                _record_auth_error()
+                raise GatewayAuthError(f"Gateway rejected API key (HTTP {resp.status_code})")
             resp.raise_for_status()
         data = resp.json()
         log.info("LLM gateway call complete",
@@ -117,7 +164,8 @@ class LLMClient:
         user_message: str,
         system_prompt: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
-        """POST /api/v1/chat/stream — real SSE streaming via org API key."""
+        """POST /api/v1/chat/stream — real SSE streaming via org API key.
+        Raises GatewayAuthError on 401/403; lets other errors propagate for fallback."""
         url = self._gateway_base_url() + "/api/v1/chat/stream"
         async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds) as http:
             async with http.stream(
@@ -126,6 +174,9 @@ class LLMClient:
                 json=self._gateway_body(user_message, system_prompt),
                 headers={**self._gateway_headers(), "Accept": "text/event-stream"},
             ) as resp:
+                if resp.status_code in (401, 403):
+                    _record_auth_error()
+                    raise GatewayAuthError(f"Gateway rejected API key (HTTP {resp.status_code})")
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line.startswith("data:"):
@@ -149,7 +200,8 @@ class LLMClient:
         system: Optional[str] = None,
         max_tokens: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
-        """Stream LLM response token by token. Gateway SSE first; direct Anthropic on fallback."""
+        """Stream LLM response token by token.
+        Gateway first; on auth failure surfaces error (no fallback); on connectivity failure falls back."""
         if self._use_gateway:
             try:
                 async for chunk in self._gateway_stream(
@@ -158,8 +210,11 @@ class LLMClient:
                 ):
                     yield chunk
                 return
+            except GatewayAuthError:
+                yield "[LLM gateway authentication failed — update the API key in Admin → LLM Gateway]\n"
+                return
             except Exception as e:
-                log.warning("Gateway stream failed, falling back to Anthropic", error=str(e))
+                _record_fallback(str(e))
 
         async for chunk in self._stream_anthropic(prompt, system, max_tokens):
             yield chunk
@@ -212,15 +267,18 @@ class LLMClient:
         system: Optional[str] = None,
         max_tokens: Optional[int] = None,
     ) -> str:
-        """Full LLM response. Gateway first; direct Anthropic on fallback."""
+        """Full LLM response.
+        Gateway first; on auth failure surfaces error (no fallback); on connectivity failure falls back."""
         if self._use_gateway:
             try:
                 return await self._gateway_chat(
                     prompt,
                     system_prompt=system or self._default_system_prompt(),
                 )
+            except GatewayAuthError:
+                return "[LLM gateway authentication failed — update the API key in Admin → LLM Gateway]"
             except Exception as e:
-                log.warning("Gateway complete failed, falling back to Anthropic", error=str(e))
+                _record_fallback(str(e))
 
         return await self._complete_anthropic(prompt, system, max_tokens)
 

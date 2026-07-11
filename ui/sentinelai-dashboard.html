@@ -2268,50 +2268,66 @@ async function renderAdmin() {
       const gwKeySet = gwConfig.api_key_set;
       const gwPrefix = gwConfig.api_key_prefix || '';
       const gwSource = gwConfig.source || 'env';
+      const health = gwConfig.health || {};
       const dashUrl = (gwUrl || 'http://52.200.85.44:8080') + '/admin-dashboard.html';
+      const inputStyle = `width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:6px;box-sizing:border-box`;
       body.innerHTML = `
         <div style="max-width:560px;padding:8px 0">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+
+          ${health.auth_error ? `
+          <div style="background:rgba(239,68,68,0.1);border:1px solid var(--red);border-radius:6px;padding:12px 16px;margin-bottom:14px">
+            <div style="font-family:var(--mono);font-size:12px;color:var(--red);font-weight:600;margin-bottom:4px">⚠ API Key Rejected by Gateway</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text2)">Gateway returned 401/403 — all LLM calls are failing. Enter a valid API key below and save.</div>
+            ${health.last_auth_error_at ? `<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">Last rejected: ${formatDate(health.last_auth_error_at)}</div>` : ''}
+          </div>` : ''}
+
+          ${(health.fallback_count > 0) ? `
+          <div style="background:rgba(251,146,60,0.1);border:1px solid var(--orange);border-radius:6px;padding:12px 16px;margin-bottom:14px">
+            <div style="font-family:var(--mono);font-size:12px;color:var(--orange);font-weight:600;margin-bottom:4px">⚡ Gateway Unreachable — Falling Back to Direct Anthropic</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text2)">Fell back ${health.fallback_count} time(s) this session. LLM calls are still working but bypassing the gateway.</div>
+            ${health.last_fallback_at ? `<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">Last fallback: ${formatDate(health.last_fallback_at)}</div>` : ''}
+            ${health.last_fallback_reason ? `<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">Reason: ${escHtml(health.last_fallback_reason)}</div>` : ''}
+          </div>` : ''}
+
+          ${(!health.auth_error && !health.fallback_count && gwEnabled && gwKeySet) ? `
+          <div style="background:rgba(16,185,129,0.08);border:1px solid var(--green);border-radius:6px;padding:10px 16px;margin-bottom:14px">
+            <div style="font-family:var(--mono);font-size:11px;color:var(--green)">✓ Gateway routing active — all LLM calls going through gateway</div>
+          </div>` : ''}
+
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
             <span style="font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid ${gwEnabled?'var(--green)':'var(--border2)'};color:${gwEnabled?'var(--green)':'var(--text3)'};background:var(--bg3)">${gwEnabled?'● ENABLED':'○ DISABLED'}</span>
             <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">source: ${gwSource}</span>
             ${gwKeySet
               ? `<span style="font-family:var(--mono);font-size:10px;color:var(--accent)">key: ${escHtml(gwPrefix)}</span>`
               : `<span style="font-family:var(--mono);font-size:10px;color:var(--red)">⚠ no key configured</span>`}
           </div>
+
           <div style="display:flex;flex-direction:column;gap:16px">
             <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
               <input type="checkbox" id="gw-enabled" ${gwEnabled?'checked':''} style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">
               <span style="font-family:var(--mono);font-size:12px;color:var(--text)">Enable LLM Gateway routing</span>
-              <span style="font-size:10px;color:var(--text3)">(falls back to direct Anthropic if disabled or unreachable)</span>
             </label>
             <div>
               <div class="section-label" style="margin-bottom:6px">Gateway URL</div>
               <input id="gw-url" type="text" placeholder="http://52.200.85.44:8080"
-                value="${escHtml(gwUrl)}"
-                style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:6px;box-sizing:border-box"
+                value="${escHtml(gwUrl)}" style="${inputStyle}"
                 onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
             </div>
             <div>
               <div class="section-label" style="margin-bottom:6px">
-                API Key
-                ${gwKeySet?`<span style="color:var(--text3);font-weight:normal;text-transform:none;letter-spacing:0"> — current: <span style="color:var(--accent)">${escHtml(gwPrefix)}</span></span>`:''}
+                API Key${gwKeySet?` <span style="color:var(--text3);font-weight:normal;text-transform:none;letter-spacing:0">— current: <span style="color:var(--accent)">${escHtml(gwPrefix)}</span></span>`:''}
               </div>
               <input id="gw-key" type="password"
-                placeholder="${gwKeySet?'Leave blank to keep current key — enter new key to rotate':'gw_...'}"
-                style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:6px;box-sizing:border-box"
-                onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
-              <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:5px">Generate from gateway admin panel → Organizations → your org → Keys → Generate key</div>
+                placeholder="${gwKeySet?'Leave blank to keep current key — paste new key to rotate':'gw_...'}"
+                style="${inputStyle}${health.auth_error?';border-color:var(--red)':''}"
+                onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='${health.auth_error?'var(--red)':'var(--border)'}'">
+              <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:5px">
+                Get key from: <a href="${escHtml(dashUrl)}" target="_blank" style="color:var(--accent);text-decoration:none">Gateway dashboard</a> → Organizations → your org → Keys → Generate
+              </div>
             </div>
-            <div style="display:flex;gap:10px;margin-top:4px">
+            <div style="display:flex;gap:10px;margin-top:2px">
               <button class="btn btn-primary" onclick="saveGatewayConfig()">Save & Apply</button>
               <button class="btn btn-ghost" onclick="renderAdmin()">Refresh Status</button>
-            </div>
-            <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
-              <div class="section-label" style="margin-bottom:8px">Gateway Admin Panel</div>
-              <div style="font-family:var(--mono);font-size:10px;color:var(--text3);line-height:1.8">
-                <div>URL: <a href="${escHtml(dashUrl)}" target="_blank" style="color:var(--accent);text-decoration:none">${escHtml(dashUrl)}</a></div>
-                <div style="margin-top:4px">Live at: <span style="color:var(--text2)">http://52.200.85.44:8080</span> (AWS us-east-1)</div>
-              </div>
             </div>
           </div>
         </div>`;

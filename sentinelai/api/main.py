@@ -1692,6 +1692,7 @@ class GatewayConfigUpdate(BaseModel):
 @app.get("/api/v1/admin/llm-gateway", tags=["Admin"])
 async def get_llm_gateway_config(admin: dict = Depends(require_admin)):
     """Return the current LLM gateway configuration. API key is shown as prefix only."""
+    from sentinelai.core.llm_client import get_gateway_health
     async with get_session_factory()() as session:
         rows = (await session.execute(
             select(SystemConfig).where(SystemConfig.key.like("llm_gateway_%"))
@@ -1704,6 +1705,7 @@ async def get_llm_gateway_config(admin: dict = Depends(require_admin)):
         "api_key_set":    bool(raw_key),
         "api_key_prefix": (raw_key[:12] + "...") if raw_key else None,
         "source":         "database" if cfg else "env",
+        "health":         get_gateway_health(),
     }
 
 
@@ -1714,8 +1716,6 @@ async def update_llm_gateway_config(
 ):
     """Save LLM gateway config to DB and apply immediately (no restart needed).
     Omit api_key to keep the existing key unchanged."""
-    from sentinelai.core.llm_client import set_gateway_config, clear_gateway_config
-
     async with get_session_factory()() as session:
         # Fetch existing key if caller didn't supply a new one
         existing_key_row = await session.get(SystemConfig, "llm_gateway_api_key")
@@ -1742,10 +1742,14 @@ async def update_llm_gateway_config(
         await session.commit()
 
     # Apply to in-memory override immediately — no restart needed
+    from sentinelai.core.llm_client import set_gateway_config, clear_gateway_config, reset_gateway_health
     if final_key:
         set_gateway_config(enabled=body.enabled, url=body.url.rstrip("/"), api_key=final_key)
     else:
         clear_gateway_config()
+
+    # Clear any auth-error / fallback state so the admin sees a fresh slate
+    reset_gateway_health()
 
     return {
         "message":        "Gateway config saved and applied",
@@ -1753,6 +1757,7 @@ async def update_llm_gateway_config(
         "url":            body.url.rstrip("/"),
         "api_key_set":    bool(final_key),
         "api_key_prefix": (final_key[:12] + "...") if final_key else None,
+        "source":         "database",
     }
 
 
